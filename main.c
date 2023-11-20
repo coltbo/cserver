@@ -12,6 +12,7 @@
 int main(int argc, char *argv[]) {
   // socket file descriptors
   int serverfd, clientfd;
+  int server = 0;
   struct sockaddr_in address;
   socklen_t addrlen = sizeof(address);
   char buffer[BUF_SIZE] = {0};
@@ -31,14 +32,14 @@ int main(int argc, char *argv[]) {
 
   address.sin_family = AF_INET;
   address.sin_addr.s_addr = INADDR_ANY;
-  address.sin_port = htons(3200);
+  address.sin_port = htons(8080);
 
   /* bind the address and port number to a socket */
   if (bind(serverfd, (struct sockaddr *)&address, sizeof(address)) < 0) {
     perror("bind failed");
     exit(EXIT_FAILURE);
   }
-
+  
   for (;;) {
     /* waiting for client to initiate a connection. The second parameter
        specifies the allowed backlog of requests on the socket.*/
