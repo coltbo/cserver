@@ -1,4 +1,7 @@
 CC=gcc
 
-server:
-	$(CC) -o server main.c
+build:
+	$(CC) -o server lex/scan.c lex/token.c main.c
+
+run:
+	./server
