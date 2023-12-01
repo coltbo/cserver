@@ -1,4 +1,5 @@
 #include "lex/scan.h"
+#include "lex/token.h"
 #include <netdb.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -82,8 +83,10 @@ int main(int argc, char *argv[]) {
     struct TokenArray *tarray = scan(buffer);
 
     for (int i = 0; i < tarray->index; i++) {
-      printf("[debug] parsed token: %d, %s\n", tarray->tokens[i]->type, tarray->tokens[i]->lexeme);
+      printf("[debug] parsed token: {%d, %s}\n", tarray->tokens[i]->type, tarray->tokens[i]->lexeme);
     }
+
+    free_token_array(tarray);
 
     char *reply = "Welcome to the server!";
     send(clientfd, reply, strlen(reply), 0);

@@ -15,8 +15,8 @@ struct Token *alloc_token(enum TokenType type, char *lexeme) {
 }
 
 void free_token(struct Token *token) {
-  free(token->lexeme);
   free(token);
+  token->lexeme = NULL;
 }
 
 struct Token *pop_token(struct TokenArray *tarray) {
@@ -61,4 +61,13 @@ struct TokenArray *alloc_token_array() {
     tarray->length = INIT_TOKENS;
   }
   return tarray;
+}
+
+void free_token_array(struct TokenArray *tarray) {
+  for (int i = 0; i < tarray->index; i++) {
+    struct Token *token = tarray->tokens[i];
+    free_token(token);
+  }
+
+  free(tarray);
 }

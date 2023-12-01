@@ -59,11 +59,12 @@ void scan_token() {
 
   // handle request line
   if (line == 1) {
-    while (peek() != '\n') advance();
+    while (peek() != '\r')
+      advance();
 
     char *token;
     // first token is method
-    if ((token = strtok(get_current_substr_value(), " ")) != NULL) { 
+    if ((token = strtok(get_current_substr_value(), " ")) != NULL) {
       push_token(tarray, alloc_token(METHOD, token));
     }
     // second token is uri
@@ -76,25 +77,28 @@ void scan_token() {
     }
 
     line++;
-  } else {
-    switch ((c = advance())) {
-    case ' ':
-      break;
-    case ':':
-      push_token(tarray, alloc_token(COLON, get_lexeme_from_char(c)));
-      break;
-    case '\n':
-      line++;
-      start = 0;
-      break;
-    default:
-      if (isdigit(c)) {
-        get_number();
-      } else {
-        get_text();
-      }
-      break;
+    return;
+  }
+
+  switch ((c = advance())) {
+  case ' ':
+    break;
+  case ':':
+    push_token(tarray, alloc_token(COLON, get_lexeme_from_char(c)));
+    break;
+  case '\r':
+    break;
+  case '\n':
+    line++;
+    start = 0;
+    break;
+  default:
+    if (isdigit(c)) {
+      get_number();
+    } else {
+      get_text();
     }
+    break;
   }
 
   start = current;
@@ -112,13 +116,13 @@ void get_text() {
       advance();
     }
 
-    while ((next = peek()) != '\n' && !is_eof()) {
+    while ((next = peek()) != '\n' && next != '\r' && !is_eof()) {
       advance();
     }
 
     push_token(tarray, alloc_token(VALUE, get_current_substr_value()));
   } else {
-    while ((next = peek()) != ' ' && next != ':' && next != '\n' && !is_eof()) {
+    while ((next = peek()) != ' ' && next != ':' && next != '\n' && next != '\r' && !is_eof()) {
       advance();
     }
 
