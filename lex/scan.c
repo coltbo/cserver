@@ -16,6 +16,12 @@ int line = 1;
 char *source;
 size_t src_len = 0;
 
+void initialize_scanner() {
+  start = 0;
+  current = 0;
+  line = 1;
+}
+
 struct TokenArray *tarray;
 
 /* Gets a text lexeme and appends it to the token array.
@@ -148,9 +154,12 @@ void get_number() {
 
 /* Get a token array from an input string. */
 struct TokenArray *scan(char *input) {
+  initialize_scanner();
+
   source = input;
   src_len = strlen(source);
   tarray = alloc_token_array();
+  
   while (!is_eof()) {
     scan_token();
   }
