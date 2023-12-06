@@ -63,6 +63,16 @@ struct TokenArray *alloc_token_array() {
   return tarray;
 }
 
+struct Token *find_token_by_type(struct TokenArray *tarray, enum TokenType type) {
+  for (int i = 0; i < tarray->index; i++) {
+    if (tarray->tokens[i]->type == type) {
+      return tarray->tokens[i]; 
+    }
+  }
+
+  return NULL;
+}
+
 void free_token_array(struct TokenArray *tarray) {
   for (int i = 0; i < tarray->index; i++) {
     struct Token *token = tarray->tokens[i];
