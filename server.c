@@ -1,4 +1,5 @@
 #include "server.h"
+#include "hash/hashtab.h"
 #include "lex/scan.h"
 #include "lex/token.h"
 #include <netinet/in.h>
@@ -10,6 +11,7 @@
 
 #define MAX_REQUEST 8192
 #define MAX_RES_LINE 100
+#define HTTP_VERSION "HTTP/1.1"
 
 int serverfd;
 
@@ -20,8 +22,51 @@ void handler(int signo, siginfo_t *info, void *context) {
 }
 
 void handle_request(int clientfd);
+void generate_response(enum StatusCode status, char *message_body, size_t size);
+
+void init_resp_codes() {
+  hashtab_insert(CONTINUE, "Continue");
+  hashtab_insert(SWITCH_PROT, "Switching Protocols");
+  hashtab_insert(PROCCESSING, "Processing");
+  hashtab_insert(EARLY_HINTS, "Early Hints");
+
+  hashtab_insert(OK, "OK");
+  hashtab_insert(CREATED, "Created");
+  hashtab_insert(ACCEPTED, "Accepted");
+  hashtab_insert(NO_CONTENT, "No Content");
+
+  hashtab_insert(MULTIPLE_CHOICE, "Multiple Choices");
+  hashtab_insert(MOVED_PERMANENTLY, "Moved Permanently");
+  hashtab_insert(FOUND, "Found");
+  hashtab_insert(NOT_MODIFIED, "Not Modified");
+  hashtab_insert(TEMP_REDIRECT, "Temporary Redirect");
+  hashtab_insert(PERM_REDIRECT, "Permanent Redirect");
+
+  hashtab_insert(BAD_REQUEST, "Bad Request");
+  hashtab_insert(BAD_REQUEST, "Bad Request");
+  hashtab_insert(UNAUTHORIZED, "Unauthorized");
+  hashtab_insert(FORBIDDEN, "Forbidden");
+  hashtab_insert(NOT_FOUND, "Not Found");
+  hashtab_insert(NOT_ALLOWED, "Method Not Allowed");
+  hashtab_insert(NOT_ACCEPTABLE, "Not Acceptable");
+  hashtab_insert(TIMEOUT, "Request Timeout");
+  hashtab_insert(LEN_REQUIRED, "Length Required");
+  hashtab_insert(TOO_LARGE, "Payload Too Large");
+  hashtab_insert(TOO_LONG, "URI Too Long");
+  hashtab_insert(UNS_MEDIA_TYPE, "Unsupported Media Type");
+  hashtab_insert(TEAPOT, "I'm a teapot");
+  hashtab_insert(TOO_MANY, "Too Many Requests");
+
+  hashtab_insert(SERVER_ERROR, "Internal Server Error");
+  hashtab_insert(NOT_IMPLEMENTED, "Not Implemented");
+  hashtab_insert(BAD_GATEWAY, "Bad Gateway");
+  hashtab_insert(UNAVAILABLE, "Service Unavailable");
+  hashtab_insert(GATEWAY_TIMEOUT, "Gateway Timeout");
+  hashtab_insert(NOT_SUPPORTED, "HTTP Version Not Supported");
+}
 
 int server_run(int port) {
+  init_resp_codes();
   struct sockaddr_in address;
   socklen_t addrlen = sizeof(address);
 
@@ -49,6 +94,8 @@ int server_run(int port) {
     return 2;
   }
 
+  printf("[info] listening for requests on %d!\n", port);
+
   for (;;) {
     /* waiting for client to initiate a connection. The second parameter
        specifies the allowed backlog of requests on the socket.*/
@@ -68,6 +115,8 @@ int server_run(int port) {
 
     handle_request(clientfd);
   }
+
+  hashtab_clear();
 }
 
 void handle_request(int clientfd) {
@@ -88,16 +137,29 @@ void handle_request(int clientfd) {
     return;
   }
 
+  struct Token *version_token = find_token_by_type(tarray, VERSION);
+  if (version_token == NULL) {
+    fprintf(stderr, "[error] no HTTP version passed in request\n");
+    return;
+  }
+
+  printf("[info] handling %s request for uri %s\n", method_token->lexeme, uri_token->lexeme);
+
   // TODO - maybe I should have some configuration
   // for the root web directory?
   char *web_root = "/home/colten/projects/cserver/www";
-  printf("%s\n", uri_token->lexeme);
   char *uri =
       (strcmp(uri_token->lexeme, "/") == 0) ? "/index.html" : uri_token->lexeme;
   int uri_len = strlen(web_root) + strlen(uri) + 1;
 
   char req_path[uri_len];
   snprintf(req_path, uri_len, "%s%s", web_root, uri);
+
+  /* vars used for response */
+  int rc;
+  char response_line[MAX_RES_LINE] = {0};
+  struct KeyValuePair status_code = {0};
+
   if (access(req_path, R_OK) == 0) {
     FILE *stream;
 
@@ -106,18 +168,40 @@ void handle_request(int clientfd) {
       fprintf(stderr, "[error] could not open requested file\n");
     } else {
       // TODO - need to actually generate a http response
-      char read_buffer[MAX_RES_LINE] = {0};
-      while (fgets(read_buffer, MAX_RES_LINE, stream)) {
-        send(clientfd, read_buffer, strlen(read_buffer), 0);
+
+      // get appropriate status code
+      if ((rc = hashtab_search(OK, &status_code)) != 0) {
+        fprintf(stderr, "[error] couldn't get appropriate status code\n");
+        return;
+      }
+
+      // Send status line
+      snprintf(response_line, MAX_RES_LINE, "%s %d %s\r\n", HTTP_VERSION,
+               status_code.key, status_code.value);
+      send(clientfd, response_line, strlen(response_line), 0);
+
+      // send content
+      while (fgets(response_line, MAX_RES_LINE, stream)) {
+        send(clientfd, response_line, strlen(response_line), 0);
       }
     }
 
     fclose(stream);
   } else {
-    fprintf(stderr, "[error] couldn't get access to `%s`\n", req_path);
+    if ((rc = hashtab_search(NOT_FOUND, &status_code)) != 0) {
+      fprintf(stderr, "[error] couldn't get appropriate status code\n");
+      return;
+    }
+
+    snprintf(response_line, MAX_RES_LINE, "%s %d %s\r\n", HTTP_VERSION,
+             status_code.key, status_code.value);
+    send(clientfd, response_line, strlen(response_line), 0);
   }
 
   free_token_array(tarray);
 
   close(clientfd);
 }
+
+void generate_response(enum StatusCode status, char *message_body,
+                       size_t size) {}
