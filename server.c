@@ -1,5 +1,4 @@
 #include "server.h"
-#include "hash/hashtab.h"
 #include "lex/scan.h"
 #include "lex/token.h"
 #include <netinet/in.h>
@@ -22,15 +21,14 @@ void handler(int signo, siginfo_t *info, void *context) {
 }
 
 void handle_request(int clientfd);
-void generate_response(enum StatusCode status, char *message_body, size_t size);
 
+/*
 void init_resp_codes() {
-  hashtab_insert(CONTINUE, "Continue");
   hashtab_insert(SWITCH_PROT, "Switching Protocols");
   hashtab_insert(PROCCESSING, "Processing");
   hashtab_insert(EARLY_HINTS, "Early Hints");
 
-  hashtab_insert(OK, "OK");
+  // hashtab_insert(OK, "OK");
   hashtab_insert(CREATED, "Created");
   hashtab_insert(ACCEPTED, "Accepted");
   hashtab_insert(NO_CONTENT, "No Content");
@@ -64,9 +62,10 @@ void init_resp_codes() {
   hashtab_insert(GATEWAY_TIMEOUT, "Gateway Timeout");
   hashtab_insert(NOT_SUPPORTED, "HTTP Version Not Supported");
 }
+*/
 
 int server_run(int port) {
-  init_resp_codes();
+  // init_resp_codes();
   struct sockaddr_in address;
   socklen_t addrlen = sizeof(address);
 
@@ -115,8 +114,6 @@ int server_run(int port) {
 
     handle_request(clientfd);
   }
-
-  hashtab_clear();
 }
 
 void handle_request(int clientfd) {
@@ -143,7 +140,8 @@ void handle_request(int clientfd) {
     return;
   }
 
-  printf("[info] handling %s request for uri %s\n", method_token->lexeme, uri_token->lexeme);
+  printf("[info] handling %s request for uri %s\n", method_token->lexeme,
+         uri_token->lexeme);
 
   // TODO - maybe I should have some configuration
   // for the root web directory?
@@ -156,9 +154,7 @@ void handle_request(int clientfd) {
   snprintf(req_path, uri_len, "%s%s", web_root, uri);
 
   /* vars used for response */
-  int rc;
   char response_line[MAX_RES_LINE] = {0};
-  struct KeyValuePair status_code = {0};
 
   if (access(req_path, R_OK) == 0) {
     FILE *stream;
@@ -169,15 +165,8 @@ void handle_request(int clientfd) {
     } else {
       // TODO - need to actually generate a http response
 
-      // get appropriate status code
-      if ((rc = hashtab_search(OK, &status_code)) != 0) {
-        fprintf(stderr, "[error] couldn't get appropriate status code\n");
-        return;
-      }
-
       // Send status line
-      snprintf(response_line, MAX_RES_LINE, "%s %d %s\r\n", HTTP_VERSION,
-               status_code.key, status_code.value);
+      snprintf(response_line, MAX_RES_LINE, "%s %s\r\n", HTTP_VERSION, OK);
       send(clientfd, response_line, strlen(response_line), 0);
 
       // send content
@@ -188,13 +177,7 @@ void handle_request(int clientfd) {
 
     fclose(stream);
   } else {
-    if ((rc = hashtab_search(NOT_FOUND, &status_code)) != 0) {
-      fprintf(stderr, "[error] couldn't get appropriate status code\n");
-      return;
-    }
-
-    snprintf(response_line, MAX_RES_LINE, "%s %d %s\r\n", HTTP_VERSION,
-             status_code.key, status_code.value);
+    snprintf(response_line, MAX_RES_LINE, "%s %s\r\n", HTTP_VERSION, NOT_FOUND);
     send(clientfd, response_line, strlen(response_line), 0);
   }
 
@@ -202,6 +185,3 @@ void handle_request(int clientfd) {
 
   close(clientfd);
 }
-
-void generate_response(enum StatusCode status, char *message_body,
-                       size_t size) {}
