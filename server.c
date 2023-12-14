@@ -4,6 +4,7 @@
 #include <netinet/in.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -14,58 +15,31 @@
 
 int serverfd;
 
+struct HttpVersion {
+  int major;
+  int minor;
+};
+
 void handler(int signo, siginfo_t *info, void *context) {
   printf("[info] closing sockets...\n");
   close(serverfd);
   printf("[info] sockets closed\n");
 }
 
+struct HttpVersion parse_http_version(char *str) {
+  int i = 0;
+  while (str[i++] != '/')
+    ;
+
+  struct HttpVersion version = {.major = atoi(strtok(str + i, ".")),
+                                .minor = atoi(strtok(NULL, "."))};
+
+  return version;
+}
+
 void handle_request(int clientfd);
 
-/*
-void init_resp_codes() {
-  hashtab_insert(SWITCH_PROT, "Switching Protocols");
-  hashtab_insert(PROCCESSING, "Processing");
-  hashtab_insert(EARLY_HINTS, "Early Hints");
-
-  // hashtab_insert(OK, "OK");
-  hashtab_insert(CREATED, "Created");
-  hashtab_insert(ACCEPTED, "Accepted");
-  hashtab_insert(NO_CONTENT, "No Content");
-
-  hashtab_insert(MULTIPLE_CHOICE, "Multiple Choices");
-  hashtab_insert(MOVED_PERMANENTLY, "Moved Permanently");
-  hashtab_insert(FOUND, "Found");
-  hashtab_insert(NOT_MODIFIED, "Not Modified");
-  hashtab_insert(TEMP_REDIRECT, "Temporary Redirect");
-  hashtab_insert(PERM_REDIRECT, "Permanent Redirect");
-
-  hashtab_insert(BAD_REQUEST, "Bad Request");
-  hashtab_insert(BAD_REQUEST, "Bad Request");
-  hashtab_insert(UNAUTHORIZED, "Unauthorized");
-  hashtab_insert(FORBIDDEN, "Forbidden");
-  hashtab_insert(NOT_FOUND, "Not Found");
-  hashtab_insert(NOT_ALLOWED, "Method Not Allowed");
-  hashtab_insert(NOT_ACCEPTABLE, "Not Acceptable");
-  hashtab_insert(TIMEOUT, "Request Timeout");
-  hashtab_insert(LEN_REQUIRED, "Length Required");
-  hashtab_insert(TOO_LARGE, "Payload Too Large");
-  hashtab_insert(TOO_LONG, "URI Too Long");
-  hashtab_insert(UNS_MEDIA_TYPE, "Unsupported Media Type");
-  hashtab_insert(TEAPOT, "I'm a teapot");
-  hashtab_insert(TOO_MANY, "Too Many Requests");
-
-  hashtab_insert(SERVER_ERROR, "Internal Server Error");
-  hashtab_insert(NOT_IMPLEMENTED, "Not Implemented");
-  hashtab_insert(BAD_GATEWAY, "Bad Gateway");
-  hashtab_insert(UNAVAILABLE, "Service Unavailable");
-  hashtab_insert(GATEWAY_TIMEOUT, "Gateway Timeout");
-  hashtab_insert(NOT_SUPPORTED, "HTTP Version Not Supported");
-}
-*/
-
 int server_run(int port) {
-  // init_resp_codes();
   struct sockaddr_in address;
   socklen_t addrlen = sizeof(address);
 
@@ -135,10 +109,13 @@ void handle_request(int clientfd) {
   }
 
   struct Token *version_token = find_token_by_type(tarray, VERSION);
+
   if (version_token == NULL) {
     fprintf(stderr, "[error] no HTTP version passed in request\n");
     return;
   }
+
+  struct HttpVersion version = parse_http_version(version_token->lexeme);
 
   printf("[info] handling %s request for uri %s\n", method_token->lexeme,
          uri_token->lexeme);
