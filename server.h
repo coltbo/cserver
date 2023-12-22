@@ -1,6 +1,7 @@
 #ifndef SERVER_H
 #define SERVER_H
 
+/*
 #define CONTINUE "100 Continue"
 #define SWITCH_PROT "101 Switching Protocols"
 #define PROCCESSING "102 Processing"
@@ -38,8 +39,8 @@
 #define UNAVAILABLE "503 Service Unavailable"
 #define GATEWAY_TIMEOUT "504 Gateway Timeout"
 #define NOT_SUPPORTED "505 HTTP Version Not Supported"
+*/
 
-/*
 enum StatusCode {
   CONTINUE = 100,
   SWITCH_PROT = 101,
@@ -79,7 +80,7 @@ enum StatusCode {
   GATEWAY_TIMEOUT = 504,
   NOT_SUPPORTED = 505,
 };
-*/
+
 int server_run(int port);
 
 #endif
