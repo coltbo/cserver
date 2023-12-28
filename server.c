@@ -51,6 +51,7 @@ struct HttpResponse *http_response_alloc() {
       (struct HttpResponse *)malloc(sizeof(struct HttpResponse) * 1);
   if (response) {
     memset(response->headers, 0, sizeof(response->headers));
+    response->body = NULL;
   }
   return response;
 }
@@ -69,7 +70,8 @@ void http_response_to_str(struct HttpResponse *response, char *res_buf,
                           size_t buf_size) {
   // append response line
   char res_line[MAX_RES_LINE] = {0};
-  snprintf(res_line, MAX_RES_LINE, "%s %d %s\r\n", HTTP_VERSION, OK, "OK");
+  snprintf(res_line, MAX_RES_LINE, "%s %d %s\r\n", HTTP_VERSION,
+           response->status, response->status_msg);
   strncat(res_buf, res_line, strlen(res_line));
 
   // append headers
@@ -81,22 +83,25 @@ void http_response_to_str(struct HttpResponse *response, char *res_buf,
     i++;
   }
 
-  // append extra CRLF
-  strncat(res_buf, clrf, strlen(clrf));
-
   // append body
-  strncat(res_buf, response->body, strlen(response->body));
+  if (response->body != NULL) {
+    strncat(res_buf, clrf, strlen(clrf));
+    strncat(res_buf, response->body, strlen(response->body + 1));
+  }
 }
 
 void http_response_free(struct HttpResponse *response) {
   free(response->body);
+  response->body = NULL;
+
   int i = 0;
   while (response->headers[i] != NULL) {
     free(response->headers[i]);
+    response->headers[i] = NULL;
     i++;
   }
-  free(response);
 
+  free(response);
   response = NULL;
 }
 
@@ -185,15 +190,31 @@ void handle_request(int clientfd) {
 
   struct TokenArray *tarray = scan(request);
 
+  struct HttpResponse *response;
+  if ((response = http_response_alloc()) == NULL) {
+    fprintf(stderr,
+            RED "[error]" RESET " failed to initialize http response\n");
+    char res_line[MAX_RES_LINE];
+    snprintf(res_line, MAX_RES_LINE, "%s %d %s\r\n", HTTP_VERSION, SERVER_ERROR, "Internal Server Error");
+    send(clientfd, res_line, MAX_RES_LINE, 0);
+    return;
+  }
+
   struct Token *method_token = find_token_by_type(tarray, METHOD);
   if (method_token == NULL) {
     fprintf(stderr, RED "[error]" RESET " no method passed in request\n");
+    char res_line[MAX_RES_LINE];
+    snprintf(res_line, MAX_RES_LINE, "%s %d %s\r\n", HTTP_VERSION, BAD_REQUEST, "Bad Request");
+    send(clientfd, res_line, MAX_RES_LINE, 0);
     return;
   }
 
   struct Token *uri_token = find_token_by_type(tarray, URI);
   if (uri_token == NULL) {
     fprintf(stderr, RED "[error]" RESET " no uri passed in request\n");
+    char res_line[MAX_RES_LINE];
+    snprintf(res_line, MAX_RES_LINE, "%s %d %s\r\n", HTTP_VERSION, BAD_REQUEST, "Bad Request");
+    send(clientfd, res_line, MAX_RES_LINE, 0);
     return;
   }
 
@@ -201,82 +222,81 @@ void handle_request(int clientfd) {
 
   if (version_token == NULL) {
     fprintf(stderr, RED "[error]" RESET " no HTTP version passed in request\n");
+    char res_line[MAX_RES_LINE];
+    snprintf(res_line, MAX_RES_LINE, "%s %d %s\r\n", HTTP_VERSION, BAD_REQUEST, "Bad Request");
+    send(clientfd, res_line, MAX_RES_LINE, 0);
     return;
   }
 
   struct HttpVersion version = parse_http_version(version_token->lexeme);
 
-  struct HttpResponse *response;
-  if ((response = http_response_alloc()) == NULL) {
-    fprintf(stderr,
-            RED "[error]" RESET " failed to initialize http response\n");
-    return;
-  }
-
   response->version = version;
+
+  char *res_buf;
 
   if (!is_method_supported(method_token->lexeme)) {
     printf(RED "[error]" RESET " unsuported http method; rejecting request\n");
-  }
-
-  printf(BLU "[info]" RESET " handling %s request for uri %s\n",
-         method_token->lexeme, uri_token->lexeme);
-
-  http_response_add_header(response, "Content-Type: text/html");
-
-  // TODO - maybe I should have some configuration
-  // for the root web directory?
-  char *web_root = "/home/colten/projects/cserver/www";
-  char *uri =
-      (strcmp(uri_token->lexeme, "/") == 0) ? "/index.html" : uri_token->lexeme;
-  int uri_len = strlen(web_root) + strlen(uri) + 1;
-
-  char req_path[uri_len];
-  snprintf(req_path, uri_len, "%s%s", web_root, uri);
-
-  /* vars used for response */
-  char response_line[MAX_RES_LINE] = {0};
-
-  if (access(req_path, R_OK) == 0) {
-    FILE *stream;
-
-    if ((stream = fopen(req_path, "r")) == NULL) {
-      // TODO - handle server errors
-      fprintf(stderr, RED "[error]" RESET " could not open requested file\n");
-      response->status = SERVER_ERROR;
-      response->status_msg = "Internal Server Error";
-    } else {
-      // TODO - need to actually generate a http response
-
-      // get file size to determine response buff size
-      fseek(stream, 0, SEEK_END);
-      long fsize = ftell(stream);
-      fseek(stream, 0, SEEK_SET);
-
-      response->body = malloc(sizeof(char) * fsize);
-      fread(response->body, sizeof(char), fsize, stream);
-
-      // http_response_add_header(response, "Content-Length: ");
-
-      size_t buf_size = fsize + 1024;
-
-      char *res_buf = malloc(sizeof(char) * (buf_size));
-
-      http_response_to_str(response, res_buf, buf_size);
-
-      send(clientfd, res_buf, buf_size, 0);
-
-      free(res_buf);
-      res_buf = NULL;
-    }
-
-    fclose(stream);
+    res_buf = malloc(sizeof(char) * (MAX_RESPONSE));
+    response->status = NOT_ALLOWED;
+    response->status_msg = "Method Not Allowed";
+    http_response_to_str(response, res_buf, MAX_RESPONSE);
+    send(clientfd, res_buf, strlen(res_buf), 0);
   } else {
-    snprintf(response_line, MAX_RES_LINE, "%s %s\r\n", HTTP_VERSION,
-             "Not Found");
-    send(clientfd, response_line, strlen(response_line), 0);
+    printf(BLU "[info]" RESET " handling %s request for uri %s\n",
+           method_token->lexeme, uri_token->lexeme);
+
+    http_response_add_header(response, "Content-Type: text/html");
+
+    // TODO - maybe I should have some configuration
+    // for the root web directory?
+    char *web_root = "/home/colten/projects/cserver/www";
+    char *uri = (strcmp(uri_token->lexeme, "/") == 0) ? "/index.html"
+                                                      : uri_token->lexeme;
+    int uri_len = strlen(web_root) + strlen(uri) + 1;
+
+    char req_path[uri_len];
+    snprintf(req_path, uri_len, "%s%s", web_root, uri);
+
+    if (access(req_path, R_OK) == 0) {
+      FILE *stream;
+
+      if ((stream = fopen(req_path, "r")) == NULL) {
+        fprintf(stderr, RED "[error]" RESET " could not open requested file\n");
+        response->status = SERVER_ERROR;
+        response->status_msg = "Internal Server Error";
+        http_response_to_str(response, res_buf, MAX_RESPONSE);
+        send(clientfd, res_buf, strlen(res_buf), 0);
+      } else {
+        // get file size to determine response buff size
+        fseek(stream, 0, SEEK_END);
+        long fsize = ftell(stream);
+        fseek(stream, 0, SEEK_SET);
+
+        response->status = OK;
+        response->status_msg = "OK";
+        response->body = malloc(sizeof(char) * fsize);
+        fread(response->body, sizeof(char), fsize, stream);
+        size_t buf_size = fsize + 1024;
+        res_buf = malloc(sizeof(char) * (buf_size));
+
+        http_response_to_str(response, res_buf, buf_size);
+
+        send(clientfd, res_buf, buf_size, 0);
+      }
+
+      fclose(stream);
+    } else {
+      res_buf = malloc(sizeof(char) * (MAX_RESPONSE));
+      response->status = NOT_FOUND;
+      response->status_msg = "Not Found";
+      http_response_to_str(response, res_buf, MAX_RESPONSE);
+      send(clientfd, res_buf, strlen(res_buf), 0);
+    }
   }
 
+  // cleaning up
+  free(res_buf);
+  res_buf = NULL;
   http_response_free(response);
   free_token_array(tarray);
 

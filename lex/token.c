@@ -15,8 +15,11 @@ struct Token *alloc_token(enum TokenType type, char *lexeme) {
 }
 
 void free_token(struct Token *token) {
-  free(token);
+  printf("freeing token: %s\n", token->lexeme);
+  free(token->lexeme);
   token->lexeme = NULL;
+  free(token);
+  token = NULL;
 }
 
 struct Token *pop_token(struct TokenArray *tarray) {
@@ -75,9 +78,12 @@ struct Token *find_token_by_type(struct TokenArray *tarray, enum TokenType type)
 
 void free_token_array(struct TokenArray *tarray) {
   for (int i = 0; i < tarray->index; i++) {
-    struct Token *token = tarray->tokens[i];
-    free_token(token);
+    free_token(tarray->tokens[i]);
+    tarray->tokens[i] = NULL;
   }
+  free(tarray->tokens);
+  tarray->tokens = NULL;
 
   free(tarray);
+  tarray = NULL;
 }
