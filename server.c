@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #define RED "\x1B[31m"
@@ -42,7 +43,7 @@ struct HttpResponse {
   struct HttpVersion version;
   enum StatusCode status;
   char *status_msg;
-  char *headers[MAX_HEADERS];
+  char **headers;
   char *body;
 };
 
@@ -50,7 +51,12 @@ struct HttpResponse *http_response_alloc() {
   struct HttpResponse *response =
       (struct HttpResponse *)malloc(sizeof(struct HttpResponse) * 1);
   if (response) {
-    memset(response->headers, 0, sizeof(response->headers));
+    response->headers = malloc(sizeof(char*) * MAX_HEADERS);
+    // memset(response->headers, 0, sizeof(MAX_HEADERS));
+    for (int i = 0; i < MAX_HEADERS; i++) {
+      response->headers[i] = NULL;
+    }
+    
     response->body = NULL;
   }
   return response;
@@ -86,7 +92,7 @@ void http_response_to_str(struct HttpResponse *response, char *res_buf,
   // append body
   if (response->body != NULL) {
     strncat(res_buf, clrf, strlen(clrf));
-    strncat(res_buf, response->body, strlen(response->body + 1));
+    strncat(res_buf, response->body, (strlen(response->body) + 1));
   }
 }
 
@@ -101,6 +107,8 @@ void http_response_free(struct HttpResponse *response) {
     i++;
   }
 
+  free(response->headers);
+  response->headers = NULL;
   free(response);
   response = NULL;
 }
@@ -136,7 +144,7 @@ void handle_request(int clientfd);
 int server_run(int port) {
   struct sockaddr_in address;
   socklen_t addrlen = sizeof(address);
-
+  
   struct sigaction act = {0};
 
   act.sa_flags = SA_SIGINFO;
@@ -274,10 +282,13 @@ void handle_request(int clientfd) {
 
         response->status = OK;
         response->status_msg = "OK";
-        response->body = malloc(sizeof(char) * fsize);
+        response->body = malloc(sizeof(char) * (fsize + 1));
         fread(response->body, sizeof(char), fsize, stream);
-        size_t buf_size = fsize + 1024;
+	response->body[fsize] = '\0';
+	
+        size_t buf_size = fsize + 1 + 1024;  // probs not the correct way of doing it
         res_buf = malloc(sizeof(char) * (buf_size));
+	memset(res_buf, 0, buf_size);
 
         http_response_to_str(response, res_buf, buf_size);
 

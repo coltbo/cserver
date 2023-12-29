@@ -15,7 +15,6 @@ struct Token *alloc_token(enum TokenType type, char *lexeme) {
 }
 
 void free_token(struct Token *token) {
-  printf("freeing token: %s\n", token->lexeme);
   free(token->lexeme);
   token->lexeme = NULL;
   free(token);

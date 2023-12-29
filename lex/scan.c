@@ -65,23 +65,52 @@ void scan_token() {
 
   // handle request line
   if (line == 1) {
-    while (peek() != '\r')
-      advance();
 
+    char c;
+    while ((c = peek()) != '\r') {
+      advance();
+    }
+
+    char *req_line = get_current_substr_value();
+
+    /* added an extra ptoken here because we need to free each
+       token later and storing token will create free issues. */
     char *token;
+    char *ptoken;
     // first token is method
-    if ((token = strtok(get_current_substr_value(), " ")) != NULL) {
-      push_token(tarray, alloc_token(METHOD, token));
+    if ((token = strtok(req_line, " ")) != NULL) {
+      ptoken = malloc(sizeof(char) * (strlen(token) + 1));
+      memcpy(ptoken, token, strlen(token));
+      ptoken[strlen(token)] = '\0';
+      if (ptoken != NULL) {
+	push_token(tarray, alloc_token(METHOD, ptoken));
+	ptoken = NULL;
+      }
     }
     // second token is uri
     if ((token = strtok(NULL, " ")) != NULL) {
-      push_token(tarray, alloc_token(URI, token));
+      ptoken = malloc(sizeof(char) * (strlen(token) + 1));
+      memcpy(ptoken, token, strlen(token));
+      ptoken[strlen(token)] = '\0';
+      if (ptoken != NULL) {
+	push_token(tarray, alloc_token(URI, ptoken));
+	ptoken = NULL;
+      }
     }
     // third token is version
     if ((token = strtok(NULL, " ")) != NULL) {
-      push_token(tarray, alloc_token(VERSION, token));
+      ptoken = malloc(sizeof(char) * (strlen(token) + 1));
+      memcpy(ptoken, token, strlen(token));
+      ptoken[strlen(token)] = '\0';
+      if (ptoken != NULL) {
+	push_token(tarray, alloc_token(VERSION, ptoken));
+	ptoken = NULL;
+      }
     }
 
+    free(req_line);
+    req_line = NULL;
+    
     line++;
     return;
   }
