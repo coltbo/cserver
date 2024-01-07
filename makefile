@@ -5,3 +5,6 @@ build:
 
 run:
 	./server 8080
+
+check:
+	valgrind --leak-check=full ./server 8080
