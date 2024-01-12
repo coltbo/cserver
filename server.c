@@ -1,6 +1,8 @@
 #include "server.h"
+#include "http/http.h"
 #include "lex/scan.h"
 #include "lex/token.h"
+#include "toml-c.h"
 #include <netinet/in.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -12,152 +14,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-// http data
-#define MAX_REQUEST 8192
-#define MAX_RESPONSE 8192
-#define MAX_RES_LINE 100
-#define MAX_HEADERS 20
-#define HTTP_VERSION "HTTP/1.1"
-
-// http verbs
-#define GET "GET"
-#define HEAD "HEAD"
-#define POST "POST"
-
-const char eol = '\0';
-const char *clrf = "\r\n";
-
 int serverfd;
-
-struct HttpVersion {
-  int major;
-  int minor;
-};
-
-bool is_http_version_compat(char *ver) {
-  int i = 0;
-  while (ver[i++] != '/')
-    ;
-
-  int major = atoi(strtok(ver + i, "."));
-  int minor = atoi(strtok(NULL, "."));
-
-  if (major != 1 || minor != 1) {
-    return false;
-  }
-  return true;
-}
-
-char *http_version_to_str(struct HttpVersion *v) {
-  char *vstr = malloc(sizeof(char) * 20);
-  snprintf(vstr, 20, "HTTP/%d.%d", v->major, v->minor);
-  return vstr;
-};
-
-const struct HttpVersion version = {.major = 1, .minor = 1};
-
-struct HttpResponse {
-  // struct HttpVersion version;
-  enum StatusCode status;
-  char *status_msg;
-  char **headers;
-  char *body;
-};
-
-struct HttpResponse *http_response_alloc() {
-  struct HttpResponse *response =
-      (struct HttpResponse *)malloc(sizeof(struct HttpResponse) * 1);
-  if (response) {
-    response->headers = malloc(sizeof(char *) * MAX_HEADERS);
-    for (int i = 0; i < MAX_HEADERS; i++) {
-      response->headers[i] = NULL;
-    }
-
-    response->body = NULL;
-  }
-  return response;
-}
-
-void http_response_add_header(struct HttpResponse *response, char *header) {
-  int i = 0;
-  while (response->headers[i] != (void *)0) {
-    i++;
-  };
-
-  response->headers[i] = malloc(sizeof(char *) * strlen(header));
-  strncpy(response->headers[i], header, strlen(header));
-}
-
-size_t http_response_calc_header_size(struct HttpResponse *res) {
-  int i = 0;
-  size_t size = 0;
-  while (res->headers[i] != NULL) {
-    size += strlen(res->headers[i]) + strlen(clrf);
-    i++;
-  }
-
-  return size;
-}
-
-char *http_response_to_str(struct HttpResponse *res) {
-  // calculate buf size
-  size_t bufsize = MAX_RES_LINE + http_response_calc_header_size(res);
-  if (res->body != NULL) {
-    bufsize += strlen(clrf) + strlen(res->body);
-  }
-
-  char *resbuf = malloc(sizeof(char) * bufsize);
-  memset(resbuf, 0, bufsize);
-
-  // append response line
-  char res_line[MAX_RES_LINE] = {0};
-  snprintf(res_line, MAX_RES_LINE, "%s %d %s\r\n", HTTP_VERSION, res->status,
-           res->status_msg);
-  strncat(resbuf, res_line, strlen(res_line));
-
-  // append headers
-  int i = 0;
-  while (res->headers[i] != NULL) {
-    char *header = res->headers[i];
-    strncat(resbuf, header, strlen(header));
-    strncat(resbuf, clrf, strlen(clrf));
-    i++;
-  }
-
-  // append body
-  if (res->body != NULL) {
-    strncat(resbuf, clrf, strlen(clrf));
-    strncat(resbuf, res->body, (strlen(res->body)));
-  }
-
-  return resbuf;
-}
-
-void http_response_free(struct HttpResponse *response) {
-  free(response->body);
-  response->body = NULL;
-
-  int i = 0;
-  while (response->headers[i] != NULL) {
-    free(response->headers[i]);
-    response->headers[i] = NULL;
-    i++;
-  }
-
-  free(response->headers);
-  response->headers = NULL;
-  free(response);
-  response = NULL;
-}
-
-bool is_method_supported(char *method) {
-  if (strncmp(method, GET, strlen(GET)) != 0 &&
-      strncmp(method, HEAD, strlen(HEAD)) != 0) {
-    return false;
-  }
-
-  return true;
-}
+toml_table_t *config = NULL;
 
 void handler(int signo, siginfo_t *info, void *context) {
   printf("[info] closing sockets...\n");
@@ -165,20 +23,32 @@ void handler(int signo, siginfo_t *info, void *context) {
   printf("[info] sockets closed\n");
 }
 
-struct HttpVersion parse_http_version(char *str) {
-  int i = 0;
-  while (str[i++] != '/')
-    ;
+toml_table_t *server_get_config() {
+  FILE *file;
+  toml_table_t *config = NULL;
+  char errbuf[200] = {0};
 
-  struct HttpVersion version = {.major = atoi(strtok(str + i, ".")),
-                                .minor = atoi(strtok(NULL, "."))};
+  char *path = "/home/colten/Projects/cserver/config.toml";
+  if ((file = fopen(path, "r")) == NULL) {
+    fprintf(stderr, "[error] failed to open config file\n");
+    return config;
+  }
 
-  return version;
+  if ((config = toml_parse_file(file, errbuf, 200)) == NULL) {
+    fprintf(stderr, "[error] %s\n", errbuf);
+  }
+
+  return config;
 }
 
 void handle_request(int clientfd);
 
 int server_run(int port) {
+  if ((config = server_get_config()) == NULL) {
+    fprintf(stderr, "[error] failed to read config file... bailing out\n");
+    return 1;
+  }
+
   struct sockaddr_in address;
   socklen_t addrlen = sizeof(address);
 
@@ -227,6 +97,8 @@ int server_run(int port) {
 
     handle_request(clientfd);
   }
+  
+  toml_free(config);
 }
 
 void handle_request(int clientfd) {
@@ -271,16 +143,18 @@ void handle_request(int clientfd) {
     printf("[info] handling %s request for uri %s\n", method_token->lexeme,
            uri_token->lexeme);
 
-    // TODO - maybe I should have some configuration
-    // for the root web directory?
-    char *web_root = "/home/colten/Projects/cserver/www";
+    toml_value_t webroot = toml_table_string(config, "webroot");
+    if (!webroot.ok) {
+      webroot.u.s = "/home";
+    }
+
     char *uri = (strcmp(uri_token->lexeme, "/") == 0) ? "/index.html"
                                                       : uri_token->lexeme;
-    int uri_len = strlen(web_root) + strlen(uri) + 1;
+    int uri_len = strlen(webroot.u.s) + strlen(uri) + 1;
 
     char req_path[uri_len];
-    snprintf(req_path, uri_len, "%s%s", web_root, uri);
-
+    snprintf(req_path, uri_len, "%s%s", webroot.u.s, uri);
+    
     if (access(req_path, R_OK) == 0) {
       FILE *stream;
 
@@ -303,7 +177,7 @@ void handle_request(int clientfd) {
 
         res->body = malloc(sizeof(char) * bodysize);
         fread(res->body, sizeof(char), fsize, stream);
-        res->body[fsize] = eol;
+        res->body[fsize] = '\0';
 
         resbuf = http_response_to_str(res);
         send(clientfd, resbuf, strlen(resbuf), 0);
