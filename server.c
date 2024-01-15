@@ -14,8 +14,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#define MAX_READ_BUF 100
+
 int serverfd;
-toml_table_t *config = NULL;
+toml_table_t *config = NULL;     // base config
+toml_table_t *serverconf = NULL; // server specific values
 
 void handler(int signo, siginfo_t *info, void *context) {
   printf("[info] closing sockets...\n");
@@ -38,7 +41,25 @@ toml_table_t *server_get_config() {
     fprintf(stderr, "[error] %s\n", errbuf);
   }
 
+  fclose(file);
   return config;
+}
+
+char *get_file_extesion(char *path) {
+  int i = strlen(path) - 1;
+  while (path[i] != '.' && path[i] >= 0)
+    i--;
+
+  return &path[i + 1];
+}
+
+toml_value_t get_file_mime_type(char *path) {
+  toml_table_t *mimes = toml_table_table(serverconf, "mime");
+
+  char *ext = get_file_extesion(path);
+  toml_value_t value = toml_table_string(mimes, ext);
+
+  return value;
 }
 
 void handle_request(int clientfd);
@@ -46,6 +67,12 @@ void handle_request(int clientfd);
 int server_run(int port) {
   if ((config = server_get_config()) == NULL) {
     fprintf(stderr, "[error] failed to read config file... bailing out\n");
+    return 1;
+  }
+
+  if ((serverconf = toml_table_table(config, "server")) == NULL) {
+    fprintf(stderr,
+            "[error] failed to read server config table... bailing out\n");
     return 1;
   }
 
@@ -97,8 +124,9 @@ int server_run(int port) {
 
     handle_request(clientfd);
   }
-  
+
   toml_free(config);
+  config = NULL;
 }
 
 void handle_request(int clientfd) {
@@ -125,28 +153,30 @@ void handle_request(int clientfd) {
 
     res->status = BAD_REQUEST;
     res->status_msg = "Bad Request";
-    resbuf = http_response_to_str(res);
+    size_t len = http_response_to_str(res, &resbuf);
     send(clientfd, resbuf, strlen(resbuf), 0);
   } else if (!is_http_version_compat(version_token->lexeme)) {
     fprintf(stderr, "[error] unsupported http version\n");
     res->status = NOT_SUPPORTED;
     res->status_msg = "HTTP Version Not Supported";
-    resbuf = http_response_to_str(res);
+    size_t len = http_response_to_str(res, &resbuf);
     send(clientfd, resbuf, strlen(resbuf), 0);
   } else if (!is_method_supported(method_token->lexeme)) {
     fprintf(stderr, "[error] unsuported http method... rejecting\n");
     res->status = NOT_ALLOWED;
     res->status_msg = "Method Not Allowed";
-    resbuf = http_response_to_str(res);
+    size_t len = http_response_to_str(res, &resbuf);
     send(clientfd, resbuf, strlen(resbuf), 0);
   } else {
     printf("[info] handling %s request for uri %s\n", method_token->lexeme,
            uri_token->lexeme);
 
-    toml_value_t webroot = toml_table_string(config, "webroot");
+    toml_value_t webroot = toml_table_string(serverconf, "webroot");
     if (!webroot.ok) {
       webroot.u.s = "/home";
     }
+
+    printf("[info] serving static files from '%s'\n", webroot.u.s);
 
     char *uri = (strcmp(uri_token->lexeme, "/") == 0) ? "/index.html"
                                                       : uri_token->lexeme;
@@ -154,40 +184,68 @@ void handle_request(int clientfd) {
 
     char req_path[uri_len];
     snprintf(req_path, uri_len, "%s%s", webroot.u.s, uri);
-    
+
+    free(webroot.u.s);
+    webroot.u.s = NULL;
+
     if (access(req_path, R_OK) == 0) {
       FILE *stream;
 
-      if ((stream = fopen(req_path, "r")) == NULL) {
+      if ((stream = fopen(req_path, "rb")) == NULL) {
         fprintf(stderr, "[error] could not open requested file\n");
         res->status = SERVER_ERROR;
         res->status_msg = "Internal Server Error";
-        resbuf = http_response_to_str(res);
+        size_t len = http_response_to_str(res, &resbuf);
         send(clientfd, resbuf, strlen(resbuf), 0);
       } else {
         res->status = OK;
         res->status_msg = "OK";
 
+        // add Content-Type header to response
+        toml_value_t mime = get_file_mime_type(req_path);
+        if (mime.ok) {
+          if (http_response_add_header(res, "Content-Type", mime.u.s) != 0) {
+            fprintf(stderr, "[error] failed to add 'Content-Type' header\n");
+          }
+        } else {
+          if (http_response_add_header(res, "Content-Type",
+                                       "application/octet-stream") != 0) {
+            fprintf(stderr, "[error] failed to add 'Content-Type' header\n");
+          }
+        }
+
         // get file size to determine response buff size
         fseek(stream, 0, SEEK_END);
-        long fsize = ftell(stream);
+        res->body_len = ftell(stream);
         fseek(stream, 0, SEEK_SET);
 
-        size_t bodysize = fsize + 1;
+        res->body = malloc(sizeof(unsigned char) * res->body_len);
+        memset(res->body, 0, res->body_len);
 
-        res->body = malloc(sizeof(char) * bodysize);
-        fread(res->body, sizeof(char), fsize, stream);
-        res->body[fsize] = '\0';
+        int offset = 0;
+        size_t bytes_left = res->body_len;
+        unsigned long nread = 0;
+        unsigned char buf[MAX_READ_BUF] = {0};
+        while ((nread = fread(buf, 1, MAX_READ_BUF, stream))) {
+        
+          size_t max = MAX_READ_BUF > bytes_left ? bytes_left : MAX_READ_BUF;
+          
+          printf("[info] copying %zu bytes into buf from %s\n", max, req_path);
+          memcpy(res->body+offset, buf, max);
 
-        resbuf = http_response_to_str(res);
-        send(clientfd, resbuf, strlen(resbuf), 0);
+          offset += max;
+          bytes_left -= max;
+        }
+
+        size_t len = http_response_to_str(res, &resbuf);
+        send(clientfd, resbuf, len, 0);
       }
 
       fclose(stream);
     } else {
       res->status = NOT_FOUND;
       res->status_msg = "Not Found";
-      resbuf = http_response_to_str(res);
+      size_t len = http_response_to_str(res, &resbuf);
       send(clientfd, resbuf, strlen(resbuf), 0);
     }
   }

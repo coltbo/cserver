@@ -21,14 +21,29 @@ struct HttpResponse *http_response_alloc() {
   return response;
 }
 
-void http_response_add_header(struct HttpResponse *response, char *header) {
+int http_response_add_header(struct HttpResponse *response, char *key,
+                              char *value) {
   int i = 0;
   while (response->headers[i] != (void *)0) {
     i++;
   };
 
-  response->headers[i] = malloc(sizeof(char *) * strlen(header));
-  strncpy(response->headers[i], header, strlen(header));
+  char *sep = ": ";
+  size_t hlen = strlen(key) + strlen(sep) + strlen(value) + 1;
+  char *header = malloc(sizeof(char) * hlen);
+  if (header) {
+    // construct header
+    snprintf(header, hlen, "%s%s%s", key, sep, value); 
+
+    // copy to headers array
+    response->headers[i] = malloc(sizeof(char *) * hlen);
+    strncpy(response->headers[i], header, hlen);
+
+    free(header);
+    return 0;
+  }
+
+  return 1;
 }
 
 size_t http_response_calc_header_size(struct HttpResponse *res) {
@@ -45,39 +60,45 @@ size_t http_response_calc_header_size(struct HttpResponse *res) {
 size_t http_response_size(struct HttpResponse *res) {
   size_t bufsize = MAX_RES_LINE + http_response_calc_header_size(res);
   if (res->body != NULL) {
-    bufsize += strlen(clrf) + strlen(res->body);
+    bufsize += strlen(clrf) + res->body_len;
   }
   return bufsize;
 }
 
-char *http_response_to_str(struct HttpResponse *res) {
+size_t http_response_to_str(struct HttpResponse *res, char **resbuf) {
+  int offset = 0;
   size_t bufsize = http_response_size(res);
 
-  char *resbuf = malloc(sizeof(char) * bufsize);
-  memset(resbuf, 0, bufsize);
+  char *tempbuf = malloc(sizeof(char) * bufsize);
+  memset(tempbuf, 0, bufsize);
 
   // append response line
   char res_line[MAX_RES_LINE] = {0};
   snprintf(res_line, MAX_RES_LINE, "%s %d %s\r\n", HTTP_VERSION, res->status,
            res->status_msg);
-  strncat(resbuf, res_line, strlen(res_line));
+  strncat(tempbuf, res_line, strlen(res_line));
+  offset += strlen(res_line);
 
   // append headers
   int i = 0;
   while (res->headers[i] != NULL) {
     char *header = res->headers[i];
-    strncat(resbuf, header, strlen(header));
-    strncat(resbuf, clrf, strlen(clrf));
+    strncat(tempbuf, header, strlen(header));
+    strncat(tempbuf, clrf, strlen(clrf));
+    offset += strlen(header) + strlen(clrf);
     i++;
   }
 
   // append body
   if (res->body != NULL) {
-    strncat(resbuf, clrf, strlen(clrf));
-    strncat(resbuf, res->body, (strlen(res->body)));
+    strncat(tempbuf, clrf, strlen(clrf));
+    offset+= strlen(clrf);
+    memcpy(tempbuf+offset, res->body, res->body_len);
   }
 
-  return resbuf;
+  *resbuf = tempbuf;
+  
+  return bufsize;
 }
 
 void http_response_free(struct HttpResponse *response) {

@@ -2,6 +2,7 @@
 #define HTTP_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #define MAX_REQUEST 8192
 #define MAX_RES_LINE 100
@@ -54,15 +55,16 @@ enum StatusCode {
 
 struct HttpResponse {
   enum StatusCode status;
+  long body_len;
   char *status_msg;
-  char *body;
+  unsigned char *body;
   char **headers;
 };
 
 bool is_http_version_compat(char *ver);
 struct HttpResponse *http_response_alloc();
-void http_response_add_header(struct HttpResponse *response, char *header);
-char *http_response_to_str(struct HttpResponse *res);
+int http_response_add_header(struct HttpResponse *response, char *key, char *value);
+size_t http_response_to_str(struct HttpResponse *res, char **resbuf);
 void http_response_free(struct HttpResponse *response);
 bool is_http_version_compat(char *ver);
 bool is_method_supported(char *method);
