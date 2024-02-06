@@ -1,7 +1,8 @@
 [server]
 webroot = "/home/colten/Projects/cserver/www"
 
-[server.mime]
+[http]
+[http.mime]
 html = "text/html"
 htm = "text/html"
 csv = "text/csv"
@@ -24,3 +25,6 @@ svg = "image/svg+xml"
 tar = "application/x-tar"
 txt = "text/plain"
 zip = "applicationn/zip"
+
+[logger]
+loglevel = "Debug"

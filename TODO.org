@@ -1,0 +1,13 @@
+* Todo List for cserver:
+
+** DONE Learn make
+- [X] Add include libs
+- [X] Fix makefile
+** DONE Add header methods
+** DONE Clean up code base
+** TODO Valgrind errors
+** TODO Implement multi-threading for reqeusts?
+** TODO Better logging
+  - [ ] Timestamps
+  - [X] Log levels (configurable)
+** TODO Encodings?
