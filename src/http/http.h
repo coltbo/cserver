@@ -9,9 +9,7 @@
 #define MAX_HEADERS 20
 #define HTTP_VERSION "HTTP/1.1"
 
-#define GET "GET"
-#define HEAD "HEAD"
-#define POST "POST"
+enum Method { GET, HEAD, UNSUPPORTED };
 
 enum StatusCode {
   CONTINUE = 100,
@@ -68,6 +66,6 @@ size_t http_response_to_str(struct HttpResponse *res, char **resbuf);
 int http_response_file_to_body(struct HttpResponse *res, char *path);
 void http_response_free(struct HttpResponse *response);
 bool is_http_version_compat(char *ver);
-bool is_method_supported(char *method);
+enum Method method_supported(char *method);
 
 #endif

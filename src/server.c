@@ -53,7 +53,7 @@ void server_handle_get(char *uri, struct HttpResponse *res) {
   int rc = http_response_file_to_body(res, req_path);
   if (rc == 0) {
     logger_log(Debug, "read %ld bytes from %s\n", res->body_len, req_path);
-    
+
     // add Content-Type header to response
     toml_datum_t mime = get_file_mime_type(req_path);
     if (mime.ok) {
@@ -101,8 +101,7 @@ void server_handle_head(char *uri, struct HttpResponse *res) {
   }
 
   FILE *stream;
-  if ((stream = fopen(
-		      req_path, "rb")) != NULL) {
+  if ((stream = fopen(req_path, "rb")) != NULL) {
     // get file size to determine response buff size
     fseek(stream, 0, SEEK_END);
     long cont_len = ftell(stream);
@@ -110,7 +109,8 @@ void server_handle_head(char *uri, struct HttpResponse *res) {
 
     // add Content-Length header
     char len_header[50];
-    snprintf(len_header, 50, "%ld", cont_len); // TODO - should probably handle this better
+    snprintf(len_header, 50, "%ld",
+             cont_len); // TODO - should probably handle this better
     if (http_response_add_header(res, "Content-Length", len_header) != 0) {
       logger_log(Error, "failed to add 'Content-Length' header\n");
     }
@@ -119,7 +119,7 @@ void server_handle_head(char *uri, struct HttpResponse *res) {
   } else {
     logger_log(Error, "file not found %s\n", req_path);
     res->status = NOT_FOUND;
-    res->status_msg = "Not Found";    
+    res->status_msg = "Not Found";
   }
 }
 
@@ -133,6 +133,8 @@ void handle_request(int clientfd) {
   struct Token *method_token = find_token_by_type(tarray, METHOD);
   struct Token *uri_token = find_token_by_type(tarray, URI);
   struct Token *version_token = find_token_by_type(tarray, VERSION);
+
+  enum Method method;
 
   if (method_token == NULL || uri_token == NULL || version_token == NULL) {
     char *msg;
@@ -155,7 +157,7 @@ void handle_request(int clientfd) {
     res->status_msg = "HTTP Version Not Supported";
     size_t len = http_response_to_str(res, &resbuf);
     send(clientfd, resbuf, strlen(resbuf), 0);
-  } else if (!is_method_supported(method_token->lexeme)) {
+  } else if ((method = method_supported(method_token->lexeme)) == UNSUPPORTED) {
     logger_log(Error, "unsuported http method... rejecting\n");
     res->status = NOT_ALLOWED;
     res->status_msg = "Method Not Allowed";
@@ -167,8 +169,18 @@ void handle_request(int clientfd) {
 
     char *uri = (strcmp(uri_token->lexeme, "/") == 0) ? "/index.html"
                                                       : uri_token->lexeme;
-
-    server_handle_get(uri, res);
+    
+    switch (method) {
+    case GET:
+      server_handle_get(uri, res);
+      break;
+    case HEAD:
+      server_handle_head(uri, res);
+      break;
+    default:
+      logger_log(Error, "unsupported http method... rejecting\n");
+      break;
+    }
 
     size_t len = http_response_to_str(res, &resbuf);
     send(clientfd, resbuf, len, 0);

@@ -158,13 +158,14 @@ void http_response_free(struct HttpResponse *response) {
   response = NULL;
 }
 
-bool is_method_supported(char *method) {
-  if (strncmp(method, GET, strlen(GET)) != 0 &&
-      strncmp(method, HEAD, strlen(HEAD)) != 0) {
-    return false;
+enum Method method_supported(char *method) {
+  if (strncmp(method, "GET", strlen("GET")) == 0) {
+    return GET;
+  } else if (strncmp(method, "HEAD", strlen("HEAD")) == 0) {
+    return HEAD;
+  } else {
+    return UNSUPPORTED;
   }
-
-  return true;
 }
 
 bool is_http_version_compat(char *ver) {

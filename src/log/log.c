@@ -43,7 +43,7 @@ void logmsg(enum LogLevel level, char *fmt, va_list args) {
 
   switch (level) {
   case Debug:
-    printf("[debg] %s %s", timestamp, buffer);
+    printf("[debug] %s %s", timestamp, buffer);
     break;
   case Information:
     printf("[info] %s %s", timestamp, buffer);

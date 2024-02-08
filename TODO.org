@@ -12,6 +12,7 @@
   - [X] Log levels (configurable)
 ** TODO Encodings?
 ** TODO Handle url encoding
-** TODO Handle HEAD request
-  - [ ] Handle status codes besides OK
+** DONE Handle HEAD request [2/2]
+  - [X] Handle status codes besides OK
+  - [X] Figure out why I'm getting weird response in curl
 ** TODO Refactor file access logic
