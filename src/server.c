@@ -4,25 +4,29 @@
 #include "lex/scan.h"
 #include "lex/token.h"
 #include "log/log.h"
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <toml.h>
 #include <unistd.h>
 
-int serverfd;
+#define MAX_EVENTS 10
+
+int listen_sock;
 toml_datum_t webroot;
 struct Config *config = NULL;
 
 void handler(int signo, siginfo_t *info, void *context) {
   logger_log(Information, "closing sockets...\n");
-  close(serverfd);
+  close(listen_sock);
   logger_log(Information, "sockets closed\n");
 }
 
@@ -169,7 +173,7 @@ void handle_request(int clientfd) {
 
     char *uri = (strcmp(uri_token->lexeme, "/") == 0) ? "/index.html"
                                                       : uri_token->lexeme;
-    
+
     switch (method) {
     case GET:
       server_handle_get(uri, res);
@@ -193,6 +197,18 @@ void handle_request(int clientfd) {
   http_response_free(res);
   free_token_array(tarray);
   close(clientfd);
+}
+
+bool set_socket_non_blocking(int fd) {
+  if (fd < 0)
+    return false;
+
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags == -1)
+    return false;
+  flags = flags &
+          ~O_NONBLOCK; // bitwise operation? should probably research this more
+  return (fcntl(fd, F_SETFL, flags) == 0);
 }
 
 int server_run(int port) {
@@ -224,7 +240,7 @@ int server_run(int port) {
     return 1;
   }
 
-  if ((serverfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+  if ((listen_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
     perror("socket failed");
     return 1;
   }
@@ -234,31 +250,70 @@ int server_run(int port) {
   address.sin_port = htons(port);
 
   /* bind the address and port number to a socket */
-  if (bind(serverfd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+  if (bind(listen_sock, (struct sockaddr *)&address, sizeof(address)) < 0) {
     perror("bind failed");
     return 2;
   }
 
+  // setup epoll
+  struct epoll_event ev, events[MAX_EVENTS];
+  int epollfd = epoll_create1(EPOLL_CLOEXEC);
+  if (epollfd == -1) {
+    perror("epoll_create1");
+    return 3;
+  }
+
+  /* waiting for client to initiate a connection. The second parameter
+     specifies the allowed backlog of requests on the socket.*/
+  if (listen(listen_sock, 3) < 0) {
+    perror("listen");
+    return 3;
+  }
+
+  ev.events = EPOLLIN;
+  ev.data.fd = listen_sock;
+  if (epoll_ctl(epollfd, EPOLL_CTL_ADD, listen_sock, &ev) == -1) {
+    perror("epoll_ctl: listen_sock");
+    return 4;
+  }
+
+  logger_log(Debug, "initialized epoll instance on %d\n", epollfd);
+
   logger_log(Information, "listening for requests on %d!\n", port);
 
   for (;;) {
-    /* waiting for client to initiate a connection. The second parameter
-       specifies the allowed backlog of requests on the socket.*/
-    if (listen(serverfd, 3) < 0) {
-      perror("listen");
-      return 3;
+    int nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
+    if (nfds == -1) {
+      perror("epoll_wait");
+      return 5;
     }
 
-    int clientfd;
-    /* takes the first connection on the socket queue and creates a new
-       connected socket with the client.*/
-    if ((clientfd = accept(serverfd, (struct sockaddr *)&address, &addrlen)) <
-        0) {
-      perror("accept");
-      return 4;
-    }
+    for (int n = 0; n < nfds; ++n) {
+      if (events[n].data.fd == listen_sock) {
+        logger_log(Debug, "accepting new incoming connections\n");
+        int conn_sock;
+        /* takes the first connection on the socket queue and creates a new
+           connected socket with the client.*/
+        if ((conn_sock = accept(listen_sock, (struct sockaddr *)&address,
+                                &addrlen)) < 0) {
+          perror("accept");
+          return 4;
+        }
 
-    handle_request(clientfd);
+        set_socket_non_blocking(conn_sock);
+
+        ev.events = EPOLLIN;
+        ev.data.fd = conn_sock;
+        if (epoll_ctl(epollfd, EPOLL_CTL_ADD, conn_sock, &ev) == -1) {
+          perror("epoll_ctl: conn_sock");
+          return 1;
+        }
+      } else {
+        logger_log(Debug, "receiving data from client with socket fd: %d\n",
+                   events[n].data.fd);
+        handle_request(events[n].data.fd);
+      }
+    }
   }
 
   free(webroot.u.s);
