@@ -64,6 +64,7 @@ void server_handle_get(char *uri, struct HttpResponse *res) {
       if (http_response_add_header(res, "Content-Type", mime.u.s) != 0) {
         logger_log(Error, "failed to add 'Content-Type' header\n");
       }
+      free(mime.u.s);
     } else {
       if (http_response_add_header(res, "Content-Type",
                                    "application/octet-stream") != 0) {

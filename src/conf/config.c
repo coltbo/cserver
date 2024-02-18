@@ -35,21 +35,24 @@ struct Config *config_alloc(char *path) {
 }
 
 enum LogLevel config_get_log_level(struct Config *config) {
-  toml_datum_t loglevel = toml_string_in(config->logging, "loglevel");
-  if (loglevel.ok) {
-    if (strncmp(loglevel.u.s, "Debug", strlen("Debug")) == 0)
-      return Debug;
-    else if (strcmp(loglevel.u.s, "Information") == 0)
-      return Information;
-    else if (strcmp(loglevel.u.s, "Warning") == 0)
-      return Warning;
-    else if (strcmp(loglevel.u.s, "Error") == 0)
-      return Error;
+  toml_datum_t loglevel_opt = toml_string_in(config->logging, "loglevel");
+  enum LogLevel loglevel;
+  if (loglevel_opt.ok) {
+    if (strncmp(loglevel_opt.u.s, "Debug", strlen("Debug")) == 0)
+      loglevel = Debug;
+    else if (strcmp(loglevel_opt.u.s, "Information") == 0)
+      loglevel = Information;
+    else if (strcmp(loglevel_opt.u.s, "Warning") == 0)
+      loglevel = Warning;
+    else if (strcmp(loglevel_opt.u.s, "Error") == 0)
+      loglevel = Error;
     else
-      return Warning;
+      loglevel = Warning;
+  
+    free(loglevel_opt.u.s);
   }
 
-  return Warning;
+  return loglevel;
 }
 
 void config_free(struct Config *config) {
