@@ -1,4 +1,5 @@
 #include "config.h"
+#include "../util.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,15 +14,15 @@ struct Config *config_alloc(char *path) {
       fprintf(stderr, "Could not open config file\n");
     }
 
-    toml_table_t *base = toml_parse_file(file, errbuf, 200);
-    if (base != NULL) {
-      if ((config->server = toml_table_in(base, "server")) == NULL) {
+    config->base = toml_parse_file(file, errbuf, 200);
+    if (config->base != NULL) {
+      if ((config->server = toml_table_in(config->base, "server")) == NULL) {
         printf("Could not find server config... using defaults\n");
       }
-      if ((config->http = toml_table_in(base, "http")) == NULL) {
+      if ((config->http = toml_table_in(config->base, "http")) == NULL) {
         printf("Could not find http config... using defaults\n");
       }
-      if ((config->logging = toml_table_in(base, "logger")) == NULL) {
+      if ((config->logging = toml_table_in(config->base, "logger")) == NULL) {
         printf("Could not find logging config... using defaults\n");
       }
     } else {
@@ -32,6 +33,18 @@ struct Config *config_alloc(char *path) {
   }
 
   return config;
+}
+
+char *config_get_file_mime_type(struct Config *config, char *path) {
+  toml_table_t *mimes = toml_table_in(config->http, "mime");
+
+  char *ext = get_file_extension(path);
+  toml_datum_t value = toml_string_in(mimes, ext);
+  if (!value.ok) {
+    return NULL;
+  }
+
+  return value.u.s;
 }
 
 enum LogLevel config_get_log_level(struct Config *config) {
@@ -48,16 +61,27 @@ enum LogLevel config_get_log_level(struct Config *config) {
       loglevel = Error;
     else
       loglevel = Warning;
-  
+
     free(loglevel_opt.u.s);
   }
 
   return loglevel;
 }
 
+char *config_get_webroot(struct Config *config) {
+  toml_datum_t webroot = toml_string_in(config->server, "webroot");
+  if (!webroot.ok) {
+    return NULL;
+  }
+
+  return webroot.u.s;
+}
+
 void config_free(struct Config *config) {
-  toml_free(config->server);
-  toml_free(config->http);
-  toml_free(config->logging);
+  toml_free(config->base);
+  config->base = NULL;
+  config->server = NULL;
+  config->http = NULL;
+  config->logging = NULL;
   free(config);
 }

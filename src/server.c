@@ -25,26 +25,12 @@ toml_datum_t webroot;
 struct Config *config = NULL;
 
 void handler(int signo, siginfo_t *info, void *context) {
+  logger_log(Information, "cleaning up resources...\n");
+  free(webroot.u.s);
+  config_free(config);
   logger_log(Information, "closing sockets...\n");
   close(listen_sock);
   logger_log(Information, "sockets closed\n");
-}
-
-char *get_file_extesion(char *path) {
-  int i = strlen(path) - 1;
-  while (path[i] != '.' && path[i] >= 0)
-    i--;
-
-  return &path[i + 1];
-}
-
-toml_datum_t get_file_mime_type(char *path) {
-  toml_table_t *mimes = toml_table_in(config->http, "mime");
-
-  char *ext = get_file_extesion(path);
-  toml_datum_t value = toml_string_in(mimes, ext);
-
-  return value;
 }
 
 void server_handle_get(char *uri, struct HttpResponse *res) {
@@ -59,13 +45,16 @@ void server_handle_get(char *uri, struct HttpResponse *res) {
     logger_log(Debug, "read %ld bytes from %s\n", res->body_len, req_path);
 
     // add Content-Type header to response
-    toml_datum_t mime = get_file_mime_type(req_path);
-    if (mime.ok) {
-      if (http_response_add_header(res, "Content-Type", mime.u.s) != 0) {
+    char *mime = config_get_file_mime_type(config, req_path);
+    if (mime != NULL) {
+      if (http_response_add_header(res, "Content-Type", mime) != 0) {
         logger_log(Error, "failed to add 'Content-Type' header\n");
       }
-      free(mime.u.s);
+      free(mime);
     } else {
+      logger_log(
+          Warning,
+          "failed to find mime type in configuration... using defautl\n");
       if (http_response_add_header(res, "Content-Type",
                                    "application/octet-stream") != 0) {
         logger_log(Error, "failed to add 'Content-Type' header\n");
@@ -225,6 +214,7 @@ int server_run(int port) {
   webroot = toml_string_in(
       config->server, "webroot"); // TODO - have some way to check for nulls
   if (!webroot.ok) {
+    logger_log(Warning, "could not find webroot... using default\n");
     webroot.u.s = "/home"; // TODO - set some reasonable default
   }
 
