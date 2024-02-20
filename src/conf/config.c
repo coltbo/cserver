@@ -68,6 +68,15 @@ enum LogLevel config_get_log_level(struct Config *config) {
   return loglevel;
 }
 
+int config_get_port(struct Config *config) {
+  toml_datum_t port_opt = toml_int_in(config->server, "port");
+  if (!port_opt.ok) {
+    return -1;
+  }
+
+  return port_opt.u.i;
+}
+
 char *config_get_webroot(struct Config *config) {
   toml_datum_t webroot = toml_string_in(config->server, "webroot");
   if (!webroot.ok) {

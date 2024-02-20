@@ -1,19 +1,38 @@
+#include "conf/config.h"
+#include "log/log.h"
 #include "server.h"
 #include <stdio.h>
 #include <stdlib.h>
 
 int main(int argc, char *argv[]) {
-  if (argc != 2) {
-    fprintf(stderr, "Usage: server [PORT]\n");
-    exit(EXIT_FAILURE);
+  // init config
+  char *path = "/home/colten/Projects/cserver/config.toml";
+  struct Config *config = config_alloc(path);
+
+  // init logger
+  struct LoggerConfig logger = {.level = config_get_log_level(config)};
+  logger_init(logger);
+
+#define exit_success()                                                         \
+  {                                                                            \
+    logger_log(Information, "cleaning up resources...\n");                     \
+    config_free(config);                                                       \
+    logger_log(Information, "finished successfully... Goodbye!\n");            \
+    exit(EXIT_SUCCESS);                                                        \
   }
 
-  int port = atoi(argv[1]);
-
-  if (!server_run(port)) {
-    fprintf(stderr, "[error] an error occurred when running the server\n");
-    exit(EXIT_FAILURE);
+#define exit_fail(code)                                                        \
+  {                                                                            \
+    logger_log(Information, "cleaning up resources...\n");                     \
+    config_free(config);                                                       \
+    logger_log(Error, "exiting server with error code `%d`\n", rc);            \
+    exit(EXIT_FAILURE);                                                        \
   }
 
-  exit(EXIT_SUCCESS);
+  int rc = 0;
+  if ((rc = server_run(config, &logger)) != 0) {
+    exit_fail(rc);
+  }
+
+  exit_success();
 }

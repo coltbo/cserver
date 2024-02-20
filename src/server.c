@@ -20,32 +20,23 @@
 
 #define MAX_EVENTS 10
 
-int listen_sock;
-toml_datum_t webroot;
-struct Config *config = NULL;
+static int _severfd;
+static struct Config *_config = NULL;
 
 void handler(int signo, siginfo_t *info, void *context) {
-  logger_log(Information, "cleaning up resources...\n");
-  free(webroot.u.s);
-  config_free(config);
   logger_log(Information, "closing sockets...\n");
-  close(listen_sock);
+  close(_severfd);
   logger_log(Information, "sockets closed\n");
 }
 
-void server_handle_get(char *uri, struct HttpResponse *res) {
-  int uri_len = strlen(webroot.u.s) + strlen(uri) + 1;
-
-  char req_path[uri_len];
-  snprintf(req_path, uri_len, "%s%s", webroot.u.s, uri);
-
+void server_handle_get(char *req_path, struct HttpResponse *res) {
   // add file contents to response body
   int rc = http_response_file_to_body(res, req_path);
   if (rc == 0) {
     logger_log(Debug, "read %ld bytes from %s\n", res->body_len, req_path);
 
     // add Content-Type header to response
-    char *mime = config_get_file_mime_type(config, req_path);
+    char *mime = config_get_file_mime_type(_config, req_path);
     if (mime != NULL) {
       if (http_response_add_header(res, "Content-Type", mime) != 0) {
         logger_log(Error, "failed to add 'Content-Type' header\n");
@@ -81,12 +72,7 @@ void server_handle_get(char *uri, struct HttpResponse *res) {
   }
 }
 
-void server_handle_head(char *uri, struct HttpResponse *res) {
-  int uri_len = strlen(webroot.u.s) + strlen(uri) + 1;
-
-  char req_path[uri_len];
-  snprintf(req_path, uri_len, "%s%s", webroot.u.s, uri);
-
+void server_handle_head(char *req_path, struct HttpResponse *res) {
   if (access(req_path, R_OK) != 0) {
     logger_log(Error, "could not open requested file\n");
     res->status = SERVER_ERROR;
@@ -117,7 +103,7 @@ void server_handle_head(char *uri, struct HttpResponse *res) {
   }
 }
 
-void handle_request(int clientfd) {
+void handle_request(int clientfd, char *webroot) {
   char request[MAX_REQUEST] = {0};
   ssize_t valread = read(clientfd, request, MAX_REQUEST);
   struct TokenArray *tarray = scan(request);
@@ -161,15 +147,20 @@ void handle_request(int clientfd) {
     logger_log(Information, "handling %s request for uri %s\n",
                method_token->lexeme, uri_token->lexeme);
 
+    // construct uri
     char *uri = (strcmp(uri_token->lexeme, "/") == 0) ? "/index.html"
                                                       : uri_token->lexeme;
 
+    int uri_len = strlen(webroot) + strlen(uri) + 1;
+    char req_path[uri_len];
+    snprintf(req_path, uri_len, "%s%s", webroot, uri);
+
     switch (method) {
     case GET:
-      server_handle_get(uri, res);
+      server_handle_get(req_path, res);
       break;
     case HEAD:
-      server_handle_head(uri, res);
+      server_handle_head(req_path, res);
       break;
     default:
       logger_log(Error, "unsupported http method... rejecting\n");
@@ -201,24 +192,28 @@ bool set_socket_non_blocking(int fd) {
   return (fcntl(fd, F_SETFL, flags) == 0);
 }
 
-int server_run(int port) {
-  // get configuration
-  char *path = "/home/colten/Projects/cserver/config.toml";
-  config = config_alloc(path);
+int server_run(struct Config *config, struct LoggerConfig *logger) {
+  // set local static config
+  _config = config;
 
-  // initialize logger
-  struct LoggerConfig logger = {.level = config_get_log_level(config)};
-  logger_init(logger);
+  int port = config_get_port(_config);
+  logger_log(Information, "listening for requests on port `%d`\n", port);
 
-  // initialize base web dir
-  webroot = toml_string_in(
-      config->server, "webroot"); // TODO - have some way to check for nulls
-  if (!webroot.ok) {
-    logger_log(Warning, "could not find webroot... using default\n");
-    webroot.u.s = "/home"; // TODO - set some reasonable default
+  char *webroot = config_get_webroot(_config);
+  logger_log(Information, "serving static files from `%s`\n", webroot);
+
+#define exit_success()                                                         \
+  {                                                                            \
+    free(webroot);                                                             \
+    return 0;                                                                  \
   }
 
-  logger_log(Information, "serving static files from '%s'\n", webroot.u.s);
+#define exit_error(code, kind)                                                 \
+  {                                                                            \
+    free(webroot);                                                             \
+    perror(kind);                                                              \
+    return code;                                                               \
+  }
 
   struct sockaddr_in address;
   socklen_t addrlen = sizeof(address);
@@ -227,13 +222,11 @@ int server_run(int port) {
   act.sa_flags = SA_SIGINFO;
   act.sa_sigaction = &handler;
   if (sigaction(SIGINT, &act, NULL) == -1) {
-    perror("sigaction");
-    return 1;
+    exit_error(1, "sigaction");
   }
 
-  if ((listen_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-    perror("socket failed");
-    return 1;
+  if ((_severfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    exit_error(2, "socket failed");
   }
 
   address.sin_family = AF_INET;
@@ -241,72 +234,63 @@ int server_run(int port) {
   address.sin_port = htons(port);
 
   /* bind the address and port number to a socket */
-  if (bind(listen_sock, (struct sockaddr *)&address, sizeof(address)) < 0) {
-    perror("bind failed");
-    return 2;
+  if (bind(_severfd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+    exit_error(2, "bind failed");
   }
 
   // setup epoll
   struct epoll_event ev, events[MAX_EVENTS];
   int epollfd = epoll_create1(EPOLL_CLOEXEC);
   if (epollfd == -1) {
-    perror("epoll_create1");
-    return 3;
+    exit_error(3, "epoll_create1");
   }
 
   /* waiting for client to initiate a connection. The second parameter
      specifies the allowed backlog of requests on the socket.*/
-  if (listen(listen_sock, 3) < 0) {
-    perror("listen");
-    return 3;
+  if (listen(_severfd, 3) < 0) {
+    exit_error(2, "listen");
   }
 
   ev.events = EPOLLIN;
-  ev.data.fd = listen_sock;
-  if (epoll_ctl(epollfd, EPOLL_CTL_ADD, listen_sock, &ev) == -1) {
-    perror("epoll_ctl: listen_sock");
-    return 4;
+  ev.data.fd = _severfd;
+  if (epoll_ctl(epollfd, EPOLL_CTL_ADD, _severfd, &ev) == -1) {
+    exit_error(3, "epoll_ctl: listen_sock");
   }
 
   logger_log(Debug, "initialized epoll instance on %d\n", epollfd);
-
   logger_log(Information, "listening for requests on %d!\n", port);
 
   for (;;) {
     int nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
     if (nfds == -1) {
-      perror("epoll_wait");
-      return 5;
+      exit_error(3, "epoll_wait");
     }
 
     for (int n = 0; n < nfds; ++n) {
-      if (events[n].data.fd == listen_sock) {
+      if (events[n].data.fd == _severfd) {
         logger_log(Debug, "accepting new incoming connections\n");
-        int conn_sock;
+        int clientfd;
         /* takes the first connection on the socket queue and creates a new
            connected socket with the client.*/
-        if ((conn_sock = accept(listen_sock, (struct sockaddr *)&address,
-                                &addrlen)) < 0) {
-          perror("accept");
-          return 4;
+        if ((clientfd =
+                 accept(_severfd, (struct sockaddr *)&address, &addrlen)) < 0) {
+          exit_error(2, "accept");
         }
 
-        set_socket_non_blocking(conn_sock);
+        set_socket_non_blocking(clientfd);
 
         ev.events = EPOLLIN;
-        ev.data.fd = conn_sock;
-        if (epoll_ctl(epollfd, EPOLL_CTL_ADD, conn_sock, &ev) == -1) {
-          perror("epoll_ctl: conn_sock");
-          return 1;
+        ev.data.fd = clientfd;
+        if (epoll_ctl(epollfd, EPOLL_CTL_ADD, clientfd, &ev) == -1) {
+          exit_error(3, "epoll_ctl: conn_sock");
         }
       } else {
         logger_log(Debug, "receiving data from client with socket fd: %d\n",
                    events[n].data.fd);
-        handle_request(events[n].data.fd);
+        handle_request(events[n].data.fd, webroot);
       }
     }
   }
 
-  free(webroot.u.s);
-  config_free(config);
+  exit_success();
 }

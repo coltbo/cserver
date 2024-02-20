@@ -12,6 +12,8 @@ struct Config {
 
 struct Config *config_alloc(char *path);
 enum LogLevel config_get_log_level(struct Config *config);
+int config_get_port(struct Config *config);
+char *config_get_webroot(struct Config *config);
 char *config_get_file_mime_type(struct Config *config, char *path);
 void config_free(struct Config *config);
 
