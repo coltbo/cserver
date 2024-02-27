@@ -1,0 +1,8 @@
+* Todo List for cserver:
+  - ( ) Persistence
+    - Check for keep-alive header. If provided, how do we store the client socket fd?
+  - ( ) Implement multi-threading for reqeusts?
+  - ( ) Encodings?
+  - ( ) Handle url encoding
+  - ( ) Exit epoll gracefully on server shutdown
+  - ( ) Chunked encoding?

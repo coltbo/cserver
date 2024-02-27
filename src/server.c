@@ -4,6 +4,8 @@
 #include "lex/scan.h"
 #include "lex/token.h"
 #include "log/log.h"
+#include <asm-generic/errno.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -29,7 +31,7 @@ void handler(int signo, siginfo_t *info, void *context) {
   logger_log(Information, "sockets closed\n");
 }
 
-void server_handle_get(char *req_path, struct HttpResponse *res) {
+void server_handle_get(char *req_path, HttpResponse *res) {
   // add file contents to response body
   int rc = http_response_file_to_body(res, req_path);
   if (rc == 0) {
@@ -72,7 +74,7 @@ void server_handle_get(char *req_path, struct HttpResponse *res) {
   }
 }
 
-void server_handle_head(char *req_path, struct HttpResponse *res) {
+void server_handle_head(char *req_path, HttpResponse *res) {
   if (access(req_path, R_OK) != 0) {
     logger_log(Error, "could not open requested file\n");
     res->status = SERVER_ERROR;
@@ -103,18 +105,55 @@ void server_handle_head(char *req_path, struct HttpResponse *res) {
   }
 }
 
+bool check_for_keep_alive(TokenArray *tarray) {
+  Token *connection_token = find_value_token_for_header(tarray, "Connection");
+  if (connection_token != NULL) {
+    if (strncmp(connection_token->lexeme, "close",
+                strlen(connection_token->lexeme)) != 0) {
+      return true;
+    } else {
+      return false;
+    }
+  } else {
+    return true; // we assume true for all good connections
+  }
+}
+
 void handle_request(int clientfd, char *webroot) {
   char request[MAX_REQUEST] = {0};
   ssize_t valread = read(clientfd, request, MAX_REQUEST);
-  struct TokenArray *tarray = scan(request);
-  struct HttpResponse *res = http_response_alloc();
+
+  if (valread == 0) {
+    logger_log(Debug, "client `%d` disconnected... closing connection\n",
+               clientfd);
+    close(clientfd);
+    return;
+  } else if (valread == -1) {
+    if (errno == EWOULDBLOCK) {
+      logger_log(Debug, "no data to read from client `%d`\n", clientfd);
+    } else {
+      logger_log(
+          Error,
+          "failed to read message from client `%d`... closing connection\n",
+          clientfd);
+      close(clientfd);
+    }
+
+    return;
+  }
+
+  logger_log(Information, "received http request:\n%s\n", request);
+
+  TokenArray *tarray = scan(request);
+  HttpResponse *res = http_response_alloc();
 
   char *resbuf;
-  struct Token *method_token = find_token_by_type(tarray, METHOD);
-  struct Token *uri_token = find_token_by_type(tarray, URI);
-  struct Token *version_token = find_token_by_type(tarray, VERSION);
+  Token *method_token = find_token_by_type(tarray, METHOD);
+  Token *uri_token = find_token_by_type(tarray, URI);
+  Token *version_token = find_token_by_type(tarray, VERSION);
 
-  enum Method method;
+  Method method;
+  bool keep_alive = false;
 
   if (method_token == NULL || uri_token == NULL || version_token == NULL) {
     char *msg;
@@ -129,23 +168,33 @@ void handle_request(int clientfd, char *webroot) {
 
     res->status = BAD_REQUEST;
     res->status_msg = "Bad Request";
+    http_response_add_header(res, "Connection", "close");
     size_t len = http_response_to_str(res, &resbuf);
     send(clientfd, resbuf, strlen(resbuf), 0);
   } else if (!is_http_version_compat(version_token->lexeme)) {
     logger_log(Error, "unsupported http version\n");
     res->status = NOT_SUPPORTED;
     res->status_msg = "HTTP Version Not Supported";
+    http_response_add_header(res, "Connection", "close");
     size_t len = http_response_to_str(res, &resbuf);
     send(clientfd, resbuf, strlen(resbuf), 0);
   } else if ((method = method_supported(method_token->lexeme)) == UNSUPPORTED) {
     logger_log(Error, "unsuported http method... rejecting\n");
     res->status = NOT_ALLOWED;
     res->status_msg = "Method Not Allowed";
+    http_response_add_header(res, "Connection", "close");
     size_t len = http_response_to_str(res, &resbuf);
     send(clientfd, resbuf, strlen(resbuf), 0);
   } else {
     logger_log(Information, "handling %s request for uri %s\n",
                method_token->lexeme, uri_token->lexeme);
+
+    // check for close connection
+    if ((keep_alive = check_for_keep_alive(tarray))) {
+      http_response_add_header(res, "Connection", "keep-alive");
+    } else {
+      http_response_add_header(res, "Connection", "close");
+    }
 
     // construct uri
     char *uri = (strcmp(uri_token->lexeme, "/") == 0) ? "/index.html"
@@ -177,7 +226,11 @@ void handle_request(int clientfd, char *webroot) {
   }
   http_response_free(res);
   free_token_array(tarray);
-  close(clientfd);
+
+  if (keep_alive == false) {
+    logger_log(Information, "closing connection to client `%d`\n", clientfd);
+    close(clientfd);
+  }
 }
 
 bool set_socket_non_blocking(int fd) {
@@ -247,7 +300,7 @@ int server_run(struct Config *config, struct LoggerConfig *logger) {
 
   /* waiting for client to initiate a connection. The second parameter
      specifies the allowed backlog of requests on the socket.*/
-  if (listen(_severfd, 3) < 0) {
+  if (listen(_severfd, SOMAXCONN) < 0) {
     exit_error(2, "listen");
   }
 
@@ -285,9 +338,10 @@ int server_run(struct Config *config, struct LoggerConfig *logger) {
           exit_error(3, "epoll_ctl: conn_sock");
         }
       } else {
-        logger_log(Debug, "receiving data from client with socket fd: %d\n",
-                   events[n].data.fd);
-        handle_request(events[n].data.fd, webroot);
+        int clientfd = events[n].data.fd;
+        logger_log(Debug, "receiving data from client fd: %d\n", clientfd);
+
+        handle_request(clientfd, webroot);
       }
     }
   }

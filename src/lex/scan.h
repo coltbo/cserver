@@ -3,6 +3,6 @@
 
 #include "token.h"
 
-struct TokenArray *scan(char *input);
+TokenArray *scan(char *input);
 
 #endif

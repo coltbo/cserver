@@ -22,7 +22,7 @@ void initialize_scanner() {
   line = 1;
 }
 
-struct TokenArray *tarray;
+TokenArray *tarray;
 
 /* Gets a text lexeme and appends it to the token array.
  * If the previous token is a ':', it will read the rest of
@@ -143,7 +143,7 @@ void get_text() {
   char next;
 
   // previous token was colon, this means we need to get the key value
-  struct Token *prev_token;
+  Token *prev_token;
   if ((prev_token = peek_token(tarray)) != NULL &&
       strcmp(prev_token->lexeme, ":") == 0) {
     while ((next = peek()) == ' ') {
@@ -182,7 +182,7 @@ void get_number() {
 }
 
 /* Get a token array from an input string. */
-struct TokenArray *scan(char *input) {
+TokenArray *scan(char *input) {
   initialize_scanner();
 
   source = input;

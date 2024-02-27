@@ -10,9 +10,9 @@
 const char eol = '\0';
 const char *clrf = "\r\n";
 
-struct HttpResponse *http_response_alloc() {
-  struct HttpResponse *response =
-      (struct HttpResponse *)malloc(sizeof(struct HttpResponse) * 1);
+HttpResponse *http_response_alloc() {
+  HttpResponse *response =
+      (HttpResponse *)malloc(sizeof(HttpResponse) * 1);
   if (response) {
     response->headers = malloc(sizeof(char *) * MAX_HEADERS);
     for (int i = 0; i < MAX_HEADERS; i++) {
@@ -24,7 +24,7 @@ struct HttpResponse *http_response_alloc() {
   return response;
 }
 
-int http_response_add_header(struct HttpResponse *response, char *key,
+int http_response_add_header(HttpResponse *response, char *key,
                              char *value) {
   int i = 0;
   while (response->headers[i] != (void *)0) {
@@ -35,7 +35,7 @@ int http_response_add_header(struct HttpResponse *response, char *key,
   size_t hlen = strlen(key) + strlen(sep) + strlen(value) + 1;
   char *header = malloc(sizeof(char) * hlen);
   if (header) {
-    // construct header
+    // conheader
     snprintf(header, hlen, "%s%s%s", key, sep, value);
 
     // copy to headers array
@@ -49,7 +49,7 @@ int http_response_add_header(struct HttpResponse *response, char *key,
   return 1;
 }
 
-size_t http_response_calc_header_size(struct HttpResponse *res) {
+size_t http_response_calc_header_size(HttpResponse *res) {
   int i = 0;
   size_t size = 0;
   while (res->headers[i] != NULL) {
@@ -60,7 +60,7 @@ size_t http_response_calc_header_size(struct HttpResponse *res) {
   return size;
 }
 
-size_t http_response_size(struct HttpResponse *res) {
+size_t http_response_size(HttpResponse *res) {
   size_t bufsize = MAX_RES_LINE + http_response_calc_header_size(res);
   if (res->body != NULL) {
     bufsize += strlen(clrf) + res->body_len;
@@ -68,7 +68,7 @@ size_t http_response_size(struct HttpResponse *res) {
   return bufsize;
 }
 
-size_t http_response_to_str(struct HttpResponse *res, char **resbuf) {
+size_t http_response_to_str(HttpResponse *res, char **resbuf) {
   int offset = 0;
   size_t bufsize = http_response_size(res);
 
@@ -104,7 +104,7 @@ size_t http_response_to_str(struct HttpResponse *res, char **resbuf) {
   return bufsize;
 }
 
-int http_response_file_to_body(struct HttpResponse *res, char *path) {
+int http_response_file_to_body(HttpResponse *res, char *path) {
   if (access(path, R_OK) != 0)
     return 1;
 
@@ -141,7 +141,7 @@ int http_response_file_to_body(struct HttpResponse *res, char *path) {
   return 0;
 }
 
-void http_response_free(struct HttpResponse *response) {
+void http_response_free(HttpResponse *response) {
   free(response->body);
   response->body = NULL;
 
@@ -158,7 +158,7 @@ void http_response_free(struct HttpResponse *response) {
   response = NULL;
 }
 
-enum Method method_supported(char *method) {
+Method method_supported(char *method) {
   if (strncmp(method, "GET", strlen("GET")) == 0) {
     return GET;
   } else if (strncmp(method, "HEAD", strlen("HEAD")) == 0) {

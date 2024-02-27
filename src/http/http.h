@@ -9,9 +9,9 @@
 #define MAX_HEADERS 20
 #define HTTP_VERSION "HTTP/1.1"
 
-enum Method { GET, HEAD, UNSUPPORTED };
+typedef enum { GET, HEAD, UNSUPPORTED } Method ;
 
-enum StatusCode {
+typedef enum {
   CONTINUE = 100,
   SWITCH_PROT = 101,
   PROCCESSING = 102,
@@ -49,23 +49,23 @@ enum StatusCode {
   UNAVAILABLE = 503,
   GATEWAY_TIMEOUT = 504,
   NOT_SUPPORTED = 505,
-};
+} StatusCode ;
 
-struct HttpResponse {
-  enum StatusCode status;
+typedef struct {
+  StatusCode status;
   long body_len;
   char *status_msg;
   unsigned char *body;
   char **headers;
-};
+} HttpResponse ;
 
 bool is_http_version_compat(char *ver);
-struct HttpResponse *http_response_alloc();
-int http_response_add_header(struct HttpResponse *response, char *key, char *value);
-size_t http_response_to_str(struct HttpResponse *res, char **resbuf);
-int http_response_file_to_body(struct HttpResponse *res, char *path);
-void http_response_free(struct HttpResponse *response);
+HttpResponse *http_response_alloc();
+int http_response_add_header(HttpResponse *response, char *key, char *value);
+size_t http_response_to_str(HttpResponse *res, char **resbuf);
+int http_response_file_to_body(HttpResponse *res, char *path);
+void http_response_free(HttpResponse *response);
 bool is_http_version_compat(char *ver);
-enum Method method_supported(char *method);
+Method method_supported(char *method);
 
 #endif

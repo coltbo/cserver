@@ -2,12 +2,10 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <time.h>
 
 #define MAX_TIME_STAMP 30
-#define MAX_LOG_SIZE 256
+#define MAX_LOG_SIZE 8192
 
 static struct LoggerConfig logger = {.level = Warning};
 
