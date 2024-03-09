@@ -1,6 +1,7 @@
 #ifndef HTTP_H
 #define HTTP_H
 
+#include "../conf/config.h"
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -59,13 +60,31 @@ typedef struct {
   char **headers;
 } HttpResponse ;
 
+/* Checks to see if the http version requested by the client
+ * is supported */
 bool is_http_version_compat(char *ver);
+
+/* Allocate a new response */
 HttpResponse *http_response_alloc();
+
+/* Add a header to the http response */
 int http_response_add_header(HttpResponse *response, char *key, char *value);
+
+/* Generates a http response string from an http response object */
 size_t http_response_to_str(HttpResponse *res, char **resbuf);
-int http_response_file_to_body(HttpResponse *res, char *path);
+
+/* Tries to access the file at the `path` provided. If `attach_to_body` is
+ * `true`, attach the contents of the file to the HTTP response along with
+ * the file metadata. Otherwise, just attach the file metadata. */
+int http_response_add_file(HttpResponse *res, char *path, Config *config, bool attach_to_body);
+
+/* Free the http respones object */
 void http_response_free(HttpResponse *response);
+
+/* Checks if the http version requested by the client is supported. */
 bool is_http_version_compat(char *ver);
+
+/* Checks if the http method requested by the client is supported. */
 Method method_supported(char *method);
 
 #endif

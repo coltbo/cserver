@@ -14,9 +14,10 @@ SRCS := $(shell find $(SRC_DIRS) -name '*.c')
 OBJS := $(SRCS:%=$(BUILD_DIR)/%.o)
 
 LIB_FLAGS := -ltoml
+CFLAGS := -Wall $(LIB_FLAGS)
 
 $(BUILD_DIR)/$(TARGET_EXEC): $(OBJS)
-	$(CC) $(LIB_FLAGS) $(OBJS) -o $@
+	$(CC) $(CFLAGS) $(OBJS) -o $@
 
 
 $(BUILD_DIR)/%.c.o: %.c

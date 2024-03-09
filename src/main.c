@@ -6,8 +6,11 @@
 
 int main(int argc, char *argv[]) {
   // init config
-  char *path = "/home/colten/Projects/cserver/config.toml";
+  char *path = "/home/colten/projects/cserver/config.toml";
   struct Config *config = config_alloc(path);
+  if (config == NULL) {
+    printf("config file not found... using defaults\n");
+  }
 
   // init logger
   struct LoggerConfig logger = {.level = config_get_log_level(config)};

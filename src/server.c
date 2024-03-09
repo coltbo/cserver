@@ -33,73 +33,33 @@ void handler(int signo, siginfo_t *info, void *context) {
 
 void server_handle_get(char *req_path, HttpResponse *res) {
   // add file contents to response body
-  int rc = http_response_file_to_body(res, req_path);
+  int rc = http_response_add_file(res, req_path, _config, true);
   if (rc == 0) {
     logger_log(Debug, "read %ld bytes from %s\n", res->body_len, req_path);
-
-    // add Content-Type header to response
-    char *mime = config_get_file_mime_type(_config, req_path);
-    if (mime != NULL) {
-      if (http_response_add_header(res, "Content-Type", mime) != 0) {
-        logger_log(Error, "failed to add 'Content-Type' header\n");
-      }
-      free(mime);
-    } else {
-      logger_log(
-          Warning,
-          "failed to find mime type in configuration... using defautl\n");
-      if (http_response_add_header(res, "Content-Type",
-                                   "application/octet-stream") != 0) {
-        logger_log(Error, "failed to add 'Content-Type' header\n");
-      }
-    }
-
-    // add Content-Length header
-    char len_header[50];
-    snprintf(len_header, 50, "%ld",
-             res->body_len); // TODO - should probably handle this better
-    if (http_response_add_header(res, "Content-Length", len_header) != 0) {
-      logger_log(Error, "failed to add 'Content-Length' header\n");
-    }
     res->status = OK;
     res->status_msg = "OK";
   } else if (rc == 1) {
-    logger_log(Error, "could not open requested file\n");
+    logger_log(Error, "could not open requested file `%s`\n", req_path);
     res->status = SERVER_ERROR;
     res->status_msg = "Internal Server Error";
   } else if (rc == 2) {
-    logger_log(Error, "file not found %s\n", req_path);
+    logger_log(Error, "file not found `%s`\n", req_path);
     res->status = NOT_FOUND;
     res->status_msg = "Not Found";
   }
 }
 
 void server_handle_head(char *req_path, HttpResponse *res) {
-  if (access(req_path, R_OK) != 0) {
-    logger_log(Error, "could not open requested file\n");
-    res->status = SERVER_ERROR;
-    res->status_msg = "Internal Server Error";
-    return;
-  }
-
-  FILE *stream;
-  if ((stream = fopen(req_path, "rb")) != NULL) {
-    // get file size to determine response buff size
-    fseek(stream, 0, SEEK_END);
-    long cont_len = ftell(stream);
-    fseek(stream, 0, SEEK_SET);
-
-    // add Content-Length header
-    char len_header[50];
-    snprintf(len_header, 50, "%ld",
-             cont_len); // TODO - should probably handle this better
-    if (http_response_add_header(res, "Content-Length", len_header) != 0) {
-      logger_log(Error, "failed to add 'Content-Length' header\n");
-    }
+  int rc = http_response_add_file(res, req_path, _config, false);
+  if (rc == 0) {
     res->status = OK;
     res->status_msg = "OK";
-  } else {
-    logger_log(Error, "file not found %s\n", req_path);
+  } else if (rc == 1) {
+    logger_log(Error, "could not open requested file `%s`\n", req_path);
+    res->status = SERVER_ERROR;
+    res->status_msg = "Internal Server Error";
+  } else if (rc == 2) {
+    logger_log(Error, "file not found `%s`\n", req_path);
     res->status = NOT_FOUND;
     res->status_msg = "Not Found";
   }
@@ -189,12 +149,6 @@ void handle_request(int clientfd, char *webroot) {
     logger_log(Information, "handling %s request for uri %s\n",
                method_token->lexeme, uri_token->lexeme);
 
-    // check for close connection
-    if ((keep_alive = check_for_keep_alive(tarray))) {
-      http_response_add_header(res, "Connection", "keep-alive");
-    } else {
-      http_response_add_header(res, "Connection", "close");
-    }
 
     // construct uri
     char *uri = (strcmp(uri_token->lexeme, "/") == 0) ? "/index.html"
@@ -214,6 +168,15 @@ void handle_request(int clientfd, char *webroot) {
     default:
       logger_log(Error, "unsupported http method... rejecting\n");
       break;
+    }
+
+    // check for close connection
+    if (res->status >= 400) {
+      http_response_add_header(res, "Connection", "close");
+    } else if ((keep_alive = check_for_keep_alive(tarray))) {
+      http_response_add_header(res, "Connection", "keep-alive");
+    } else {
+      http_response_add_header(res, "Connection", "close");
     }
 
     size_t len = http_response_to_str(res, &resbuf);

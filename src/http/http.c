@@ -1,4 +1,5 @@
 #include "http.h"
+#include "../log/log.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,13 +7,13 @@
 #include <unistd.h>
 
 #define MAX_READ_BUF 100
+#define MAX_CONTENT_LEN_HEADER 50
 
 const char eol = '\0';
 const char *clrf = "\r\n";
 
 HttpResponse *http_response_alloc() {
-  HttpResponse *response =
-      (HttpResponse *)malloc(sizeof(HttpResponse) * 1);
+  HttpResponse *response = (HttpResponse *)malloc(sizeof(HttpResponse) * 1);
   if (response) {
     response->headers = malloc(sizeof(char *) * MAX_HEADERS);
     for (int i = 0; i < MAX_HEADERS; i++) {
@@ -24,8 +25,7 @@ HttpResponse *http_response_alloc() {
   return response;
 }
 
-int http_response_add_header(HttpResponse *response, char *key,
-                             char *value) {
+int http_response_add_header(HttpResponse *response, char *key, char *value) {
   int i = 0;
   while (response->headers[i] != (void *)0) {
     i++;
@@ -104,12 +104,12 @@ size_t http_response_to_str(HttpResponse *res, char **resbuf) {
   return bufsize;
 }
 
-int http_response_file_to_body(HttpResponse *res, char *path) {
+int http_response_add_file(HttpResponse *res, char *path, Config *config,
+                           bool attach_to_body) {
   if (access(path, R_OK) != 0)
     return 1;
 
   FILE *stream;
-
   if ((stream = fopen(path, "rb")) == NULL) {
     return 2;
   } else {
@@ -118,26 +118,39 @@ int http_response_file_to_body(HttpResponse *res, char *path) {
     res->body_len = ftell(stream);
     fseek(stream, 0, SEEK_SET);
 
-    res->body = malloc(sizeof(unsigned char) * res->body_len);
-    memset(res->body, 0, res->body_len);
+    if (attach_to_body) {
+      res->body = malloc(sizeof(unsigned char) * res->body_len);
+      memset(res->body, 0, res->body_len);
 
-    int offset = 0;
-    size_t bytes_left = res->body_len;
-    unsigned long nread = 0;
-    unsigned char buf[MAX_READ_BUF] = {0};
-    while ((nread = fread(buf, 1, MAX_READ_BUF, stream))) {
+      int offset = 0;
+      size_t bytes_left = res->body_len;
+      unsigned long nread = 0;
+      unsigned char buf[MAX_READ_BUF] = {0};
+      while ((nread = fread(buf, 1, MAX_READ_BUF, stream))) {
+        size_t max = MAX_READ_BUF > bytes_left ? bytes_left : MAX_READ_BUF;
+        memcpy(res->body + offset, buf, max);
+        offset += max;
+        bytes_left -= max;
+      }
+    }
 
-      size_t max = MAX_READ_BUF > bytes_left ? bytes_left : MAX_READ_BUF;
+    char len_header[MAX_CONTENT_LEN_HEADER] = {0};
+    snprintf(len_header, MAX_CONTENT_LEN_HEADER, "%ld", res->body_len);
+    if (http_response_add_header(res, "Content-Length", len_header) != 0) {
+      logger_log(Error, "failed to add 'Content-Length' header\n");
+    };
 
-      memcpy(res->body + offset, buf, max);
-
-      offset += max;
-      bytes_left -= max;
+    char *mime = config_get_file_mime_type(config, path);
+    if (mime != NULL) {
+      if (http_response_add_header(res, "Content-Type", mime) != 0) {
+        logger_log(Error, "failed to add 'Content-Type' header\n");
+      }
+    } else {
+      logger_log(Error, "failed to add 'Content-Type' header\n");
     }
   }
 
   fclose(stream);
-
   return 0;
 }
 

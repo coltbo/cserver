@@ -11,7 +11,7 @@ static struct LoggerConfig logger = {.level = Warning};
 
 void logger_init(struct LoggerConfig config) { logger = config; }
 
-bool should_log(enum LogLevel level) {
+bool should_log(LogLevel level) {
   return level >= logger.level ? true : false;
 }
 
@@ -28,7 +28,7 @@ void get_current_timestamp(char *timestamp, size_t len) {
            timeinfo->tm_min, timeinfo->tm_sec);
 }
 
-void logmsg(enum LogLevel level, char *fmt, va_list args) {
+void logmsg(LogLevel level, char *fmt, va_list args) {
   char buffer[MAX_LOG_SIZE] = {0};
   int bytes = vsnprintf(buffer, MAX_LOG_SIZE, fmt, args);
   if (bytes <= 0) {
@@ -41,24 +41,24 @@ void logmsg(enum LogLevel level, char *fmt, va_list args) {
 
   switch (level) {
   case Debug:
-    printf("[debug] %s %s", timestamp, buffer);
+    printf("[DBG] %s %s", timestamp, buffer);
     break;
   case Information:
-    printf("[info] %s %s", timestamp, buffer);
+    printf("[INF] %s %s", timestamp, buffer);
     break;
   case Warning:
-    printf("[warn] %s %s", timestamp, buffer);
+    printf("[WRN] %s %s", timestamp, buffer);
     break;
   case Error:
-    printf("[error] %s %s", timestamp, buffer);
+    printf("[ERR] %s %s", timestamp, buffer);
     break;
   default:
-    printf("[warn] %s %s", timestamp, buffer);
+    printf("[WRN] %s %s", timestamp, buffer);
     break;
   }
 }
 
-void logger_log(enum LogLevel level, char *fmt, ...) {
+void logger_log(LogLevel level, char *fmt, ...) {
   if (!should_log(level))
     return;
 

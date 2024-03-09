@@ -1,6 +1,6 @@
 [server]
 port = 8080
-webroot = "/home/colten/Projects/cserver/www"
+webroot = "/home/colten/projects/cserver/www"
 
 [http]
 [http.mime]
